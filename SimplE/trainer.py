@@ -1,4 +1,4 @@
-from dataset import Dataset
+from dataset import Dataset, Params
 from SimplE import SimplE
 import torch
 import torch.nn as nn
@@ -7,7 +7,7 @@ import os
 
 
 class Trainer:
-    def __init__(self, dataset, args):
+    def __init__(self, dataset, args: Params):
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.model = SimplE(
             dataset.num_ent(), dataset.num_rel(), args.emb_dim, self.device
@@ -25,7 +25,7 @@ class Trainer:
             initial_accumulator_value=0.1,  # this is added because of the consistency to the original tensorflow code
         )
 
-        for epoch in range(1, self.args.ne + 1):
+        for epoch in range(1, self.args.num_epochs + 1):
             last_batch = False
             total_loss = 0.0
 
@@ -65,4 +65,4 @@ class Trainer:
         directory = "models/" + self.dataset.name + "/"
         if not os.path.exists(directory):
             os.makedirs(directory)
-        torch.save(self.model, directory + str(chkpnt) + ".chkpnt")
+        torch.save(self.model, directory + "model.chkpnt")

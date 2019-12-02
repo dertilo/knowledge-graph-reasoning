@@ -1,13 +1,27 @@
+from dataclasses import dataclass
+
 import numpy as np
 import random
 import torch
 import math
 
 
+@dataclass
+class Params:
+    num_epochs: int = 100
+    lr: float = 0.05
+    reg_lambda: float = 0.1
+    dataset: str = "umls"
+    emb_dim: int = 200
+    neg_ratio: float = 10.0
+    save_each: int = 1
+    batch_size: int = 32
+
+
 class Dataset:
     def __init__(self, ds_name):
         self.name = ds_name
-        self.dir = "../MultiHopKG/data/" + ds_name + "/"
+        self.dir = "../../MultiHopKG/data/" + ds_name + "/"
         self.ent2id = {}
         self.rel2id = {}
         self.data = {
