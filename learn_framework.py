@@ -30,7 +30,6 @@ class LFramework(nn.Module):
     def __init__(self, args, kg: KnowledgeGraph, agent: GraphWalkAgent):
         super(LFramework, self).__init__()
         self.args = args
-        self.data_dir = args.data_dir
         self.model_dir = args.model_dir
         self.model = args.model
 
@@ -48,7 +47,6 @@ class LFramework(nn.Module):
         self.adam_beta2 = args.adam_beta2
         self.optim = None
 
-        self.inference = not args.train
         self.run_analysis = args.run_analysis
 
         self.kg = kg
@@ -309,25 +307,6 @@ class LFramework(nn.Module):
         else:
             torch.save(checkpoint_dict, out_tar)
             print("=> saving checkpoint to '{}'".format(out_tar))
-
-    def load_checkpoint(self, input_file):
-        """
-        Load model checkpoint.
-        :param n: Neural network module.
-        :param kg: Knowledge graph module.
-        :param input_file: Checkpoint file path.
-        """
-        if os.path.isfile(input_file):
-            print("=> loading checkpoint '{}'".format(input_file))
-            checkpoint = torch.load(
-                input_file, map_location="cuda:{}".format(self.args.gpu)
-            )
-            self.load_state_dict(checkpoint["state_dict"])
-            if not self.inference:
-                self.start_epoch = checkpoint["epoch_id"] + 1
-                assert self.start_epoch <= self.num_epochs
-        else:
-            print("=> no checkpoint found at '{}'".format(input_file))
 
     def export_to_embedding_projector(self):
         """

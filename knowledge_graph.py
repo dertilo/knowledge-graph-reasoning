@@ -151,7 +151,8 @@ class Observation(NamedTuple):
 
 
 class KnowledgeGraph(nn.Module):
-    def __init__(self, args):
+    def __init__(self, args, data_dir):
+
         super(KnowledgeGraph, self).__init__()
         self.entity2id, self.id2entity = {}, {}
         self.relation2id, self.id2relation = {}, {}
@@ -178,15 +179,14 @@ class KnowledgeGraph(nn.Module):
         self.all_subject_vectors = None
         self.all_object_vectors = None
 
-        print("** Create {} knowledge graph **".format(args.model))
-        self.load_graph_data(args.data_dir)
-        self.load_all_answers(args.data_dir, add_reversed_edges=True)
+        self.load_graph_data(data_dir)
+        self.load_all_answers(data_dir, add_reversed_edges=True)
 
         # Define NN Modules
         self.entity_dim = args.entity_dim
         self.relation_dim = args.relation_dim
         self.emb_dropout_rate = args.emb_dropout_rate
-        self.num_graph_convolution_layers = args.num_graph_convolution_layers
+        # self.num_graph_convolution_layers = args.num_graph_convolution_layers # TODO(tilo):wtf!
         self.entity_embeddings = None
         self.relation_embeddings = None
         self.entity_img_embeddings = None
@@ -213,12 +213,12 @@ class KnowledgeGraph(nn.Module):
         print("Sanity check: {} relations loaded".format(len(self.relation2id)))
 
         # Load graph structures
-        if self.args.model.startswith("point"):
-            # Base graph structure used for training and test
-            adj_list_path = os.path.join(data_dir, "adj_list.pkl")
-            with open(adj_list_path, "rb") as f:
-                self.e1_to_r_to_e2 = pickle.load(f)
-            self.preprocess_knowledge_graph(data_dir)
+        # if self.args.model.startswith("point"): # TODO(tilo):WTF !?
+        #     # Base graph structure used for training and test
+        #     adj_list_path = os.path.join(data_dir, "adj_list.pkl")
+        #     with open(adj_list_path, "rb") as f:
+        #         self.e1_to_r_to_e2 = pickle.load(f)
+        #     self.preprocess_knowledge_graph(data_dir)
 
     def get_bucket_and_inbucket_ids(self, entities: torch.Tensor):
         entity2bucketid = self._bucket_inbucket_ids[entities.tolist()]
@@ -316,12 +316,12 @@ class KnowledgeGraph(nn.Module):
         add_object(self.dummy_e, self.dummy_e, self.dummy_r, dev_objects)
         add_object(self.dummy_e, self.dummy_e, self.dummy_r, all_objects)
         for file_name in ["raw.kb", "train.triples", "dev.triples", "test.triples"]:
-            if (
-                "NELL" in self.args.data_dir
-                and self.args.test
-                and file_name == "train.triples"
-            ):
-                continue
+            # if ( # TODO(tilo)
+            #     "NELL" in self.args.data_dir
+            #     and self.args.test
+            #     and file_name == "train.triples"
+            # ):
+            #     continue
             with open(os.path.join(data_dir, file_name)) as f:
                 for line in f:
                     e1, e2, r = line.strip().split()
@@ -451,16 +451,16 @@ class KnowledgeGraph(nn.Module):
     def define_modules(self):
         if not self.args.relation_only:
             self.entity_embeddings = nn.Embedding(self.num_entities, self.entity_dim)
-            if self.args.model == "complex":
-                self.entity_img_embeddings = nn.Embedding(
-                    self.num_entities, self.entity_dim
-                )
+            # if self.args.model == "complex": # TODO(tilo)
+            #     self.entity_img_embeddings = nn.Embedding(
+            #         self.num_entities, self.entity_dim
+            #     )
             self.EDropout = nn.Dropout(self.emb_dropout_rate)
         self.relation_embeddings = nn.Embedding(self.num_relations, self.relation_dim)
-        if self.args.model == "complex":
-            self.relation_img_embeddings = nn.Embedding(
-                self.num_relations, self.relation_dim
-            )
+        # if self.args.model == "complex":# TODO(tilo)
+        #     self.relation_img_embeddings = nn.Embedding(
+        #         self.num_relations, self.relation_dim
+        #     )
         self.RDropout = nn.Dropout(self.emb_dropout_rate)
 
     def initialize_modules(self):
