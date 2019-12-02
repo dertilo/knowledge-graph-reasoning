@@ -10,6 +10,7 @@
 import collections
 import os
 import pickle
+from dataclasses import dataclass
 from typing import NamedTuple, Dict, List, Set
 
 import torch
@@ -150,14 +151,43 @@ class Observation(NamedTuple):
         return Observation(**d, is_last=self.is_last)
 
 
+@dataclass
+class GraphMappings:
+    entity2id: Dict
+    id2entity: Dict
+    relation2id: Dict
+    id2relation: Dict
+    type2id: Dict
+    id2type: Dict
+    entity2typeid: Dict
+
+
+def load_graph_mappings(data_dir):
+    entity2id, id2entity = load_index(os.path.join(data_dir, "entity2id.txt"))
+    print("{} entities loaded".format(len(entity2id)))
+    type2id, id2type = load_index(os.path.join(data_dir, "type2id.txt"))
+    print("{} types loaded".format(len(type2id)))
+    with open(os.path.join(data_dir, "entity2typeid.pkl"), "rb") as f:
+        entity2typeid = pickle.load(f)
+    relation2id, id2relation = load_index(os.path.join(data_dir, "relation2id.txt"))
+    print("Sanity check: {} relations loaded".format(len(relation2id)))
+
+    # Load graph structures
+    # if self.args.model.startswith("point"): # TODO(tilo):WTF !?
+    #     # Base graph structure used for training and test
+    #     adj_list_path = os.path.join(data_dir, "adj_list.pkl")
+    #     with open(adj_list_path, "rb") as f:
+    #         self.e1_to_r_to_e2 = pickle.load(f)
+    #     self.preprocess_knowledge_graph(data_dir)
+    return GraphMappings(
+        entity2id, id2entity, relation2id, id2relation, type2id, id2type, entity2typeid
+    )
+
+
 class KnowledgeGraph(nn.Module):
     def __init__(self, args, data_dir):
 
         super(KnowledgeGraph, self).__init__()
-        self.entity2id, self.id2entity = {}, {}
-        self.relation2id, self.id2relation = {}, {}
-        self.type2id, self.id2type = {}, {}
-        self.entity2typeid = {}
         self.e1_to_r_to_e2 = None
         self.bandwidth = args.bandwidth
         self.args = args
@@ -179,7 +209,7 @@ class KnowledgeGraph(nn.Module):
         self.all_subject_vectors = None
         self.all_object_vectors = None
 
-        self.load_graph_data(data_dir)
+        self.maps = load_graph_mappings(data_dir)
         self.load_all_answers(data_dir, add_reversed_edges=True)
 
         # Define NN Modules
@@ -197,29 +227,6 @@ class KnowledgeGraph(nn.Module):
         self.define_modules()
         self.initialize_modules()
 
-    def load_graph_data(self, data_dir):
-        # Load indices
-        self.entity2id, self.id2entity = load_index(
-            os.path.join(data_dir, "entity2id.txt")
-        )
-        print("Sanity check: {} entities loaded".format(len(self.entity2id)))
-        self.type2id, self.id2type = load_index(os.path.join(data_dir, "type2id.txt"))
-        print("Sanity check: {} types loaded".format(len(self.type2id)))
-        with open(os.path.join(data_dir, "entity2typeid.pkl"), "rb") as f:
-            self.entity2typeid = pickle.load(f)
-        self.relation2id, self.id2relation = load_index(
-            os.path.join(data_dir, "relation2id.txt")
-        )
-        print("Sanity check: {} relations loaded".format(len(self.relation2id)))
-
-        # Load graph structures
-        # if self.args.model.startswith("point"): # TODO(tilo):WTF !?
-        #     # Base graph structure used for training and test
-        #     adj_list_path = os.path.join(data_dir, "adj_list.pkl")
-        #     with open(adj_list_path, "rb") as f:
-        #         self.e1_to_r_to_e2 = pickle.load(f)
-        #     self.preprocess_knowledge_graph(data_dir)
-
     def get_bucket_and_inbucket_ids(self, entities: torch.Tensor):
         entity2bucketid = self._bucket_inbucket_ids[entities.tolist()]
         bucket_ids = entity2bucketid[:, 0]
@@ -231,14 +238,16 @@ class KnowledgeGraph(nn.Module):
         sanity_checks(self.e1_to_r_to_e2)
 
         page_rank_scores = load_page_rank_scores(
-            os.path.join(data_dir, "raw.pgrk"), self.entity2id
+            os.path.join(data_dir, "raw.pgrk"), self.maps.entity2id
         )
 
         forks = build_forks(
             self.num_entities,
             {
                 **self.e1_to_r_to_e2,
-                **{self.entity2id[k]: {} for k in ["DUMMY_ENTITY", "NO_OP_ENTITY"]},
+                **{
+                    self.maps.entity2id[k]: {} for k in ["DUMMY_ENTITY", "NO_OP_ENTITY"]
+                },
             },
             self.bandwidth,
             page_rank_scores,
@@ -384,9 +393,9 @@ class KnowledgeGraph(nn.Module):
                 print(line)
                 if "{}\t{}\t{}".format(e1, e2, r) in removed_triples:
                     continue
-                e1_id = self.entity2id[e1]
-                e2_id = self.entity2id[e2]
-                r_id = self.relation2id[r]
+                e1_id = self.maps.entity2id[e1]
+                e2_id = self.maps.entity2id[e2]
+                r_id = self.maps.relation2id[r]
                 if not r_id in self.e1_to_r_to_e2[e1_id]:
                     self.e1_to_r_to_e2[e1_id][r_id] = set()
                 if not e2_id in self.e1_to_r_to_e2[e1_id][r_id]:
@@ -442,11 +451,19 @@ class KnowledgeGraph(nn.Module):
 
     def id2triples(self, triple):
         e1, e2, r = triple
-        return self.id2entity[e1], self.id2entity[e2], self.id2relation[r]
+        return (
+            self.maps.id2entity[e1],
+            self.maps.id2entity[e2],
+            self.maps.id2relation[r],
+        )
 
     def triple2ids(self, triple):
         e1, e2, r = triple
-        return self.entity2id[e1], self.entity2id[e2], self.relation2id[r]
+        return (
+            self.maps.entity2id[e1],
+            self.maps.entity2id[e2],
+            self.maps.relation2id[r],
+        )
 
     def define_modules(self):
         if not self.args.relation_only:
@@ -470,11 +487,11 @@ class KnowledgeGraph(nn.Module):
 
     @property
     def num_entities(self):
-        return len(self.entity2id)
+        return len(self.maps.entity2id)
 
     @property
     def num_relations(self):
-        return len(self.relation2id)
+        return len(self.maps.relation2id)
 
     @property
     def self_edge(self):
