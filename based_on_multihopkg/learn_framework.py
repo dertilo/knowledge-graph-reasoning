@@ -22,7 +22,7 @@ from knowledge_graph import KnowledgeGraph
 from graph_walk_agent import GraphWalkAgent
 from ops import var_cuda, zeros_var_cuda
 import ops as ops
-from ranking_metrics import hits_and_ranks
+from kgr.ranking_metrics import hits_and_ranks
 
 
 class LFramework(nn.Module):
