@@ -69,18 +69,7 @@ class LFramework(nn.Module):
         self.secondary_kg = secondary_kg
         self.tertiary_kg = tertiary_kg
 
-    def print_all_model_parameters(self):
-        print("\nModel Parameters")
-        print("--------------------------")
-        for name, param in self.named_parameters():
-            print(name, param.numel(), "requires_grad={}".format(param.requires_grad))
-        param_sizes = [param.numel() for param in self.parameters()]
-        print("Total # parameters = {}".format(sum(param_sizes)))
-        print("--------------------------")
-        print()
-
     def run_train(self, train_data, dev_data):
-        self.print_all_model_parameters()
 
         for epoch_id in range(self.start_epoch, self.num_epochs):
             print("Epoch {}".format(epoch_id))
@@ -94,8 +83,6 @@ class LFramework(nn.Module):
             for example_id in tqdm(range(0, len(train_data), self.batch_size)):
 
                 mini_batch = train_data[example_id : example_id + self.batch_size]
-                if len(mini_batch) < self.batch_size:  # TODO(tilo):WhyTF?!
-                    continue
 
                 loss = self.train_one_batch(mini_batch)
                 batch_losses.append(loss)
