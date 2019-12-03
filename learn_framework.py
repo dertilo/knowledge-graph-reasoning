@@ -52,12 +52,14 @@ class LFramework(nn.Module):
         self.grad_norm = args.grad_norm
         self.adam_beta1 = args.adam_beta1
         self.adam_beta2 = args.adam_beta2
+        self.kg = kg
+        self.agent = agent
+
         self.optim = optim.Adam(
             filter(lambda p: p.requires_grad, self.parameters()),
             lr=self.learning_rate,
         )
-        self.kg = kg
-        self.agent = agent
+
         print("{} module created".format(self.model))
 
         self.num_negative_samples = args.num_negative_samples
@@ -121,7 +123,7 @@ class LFramework(nn.Module):
         if self.grad_norm > 0:
             clip_grad_norm_(self.parameters(), self.grad_norm)
         self.optim.step()
-        return loss.data.float()
+        return float(loss.data.cpu().numpy())
 
     def forward(self, examples, verbose=False):
         pred_scores = []
