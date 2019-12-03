@@ -35,9 +35,9 @@ class Args:
     add_reversed_training_edges = True
     train_entire_graph = False
     emb_dropout_rate = 0.3
-    num_epochs = 101
+    num_epochs = 2
     num_wait_epochs = 500
-    num_peek_epochs = 10
+    num_peek_epochs = 1
     start_epoch = 0
     batch_size = 512
     train_batch_size = 32
@@ -62,7 +62,6 @@ class Args:
     bandwidth = 400
     num_graph_convolution_layers = 0
     relation_only = False
-    run_analysis = False
     theta = 0.2
     checkpoint_path = None
 

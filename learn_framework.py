@@ -27,7 +27,14 @@ from ranking_metrics import hits_and_ranks
 
 
 class LFramework(nn.Module):
-    def __init__(self, args, kg:KnowledgeGraph, agent:GraphWalkAgent, secondary_kg=None, tertiary_kg=None):
+    def __init__(
+        self,
+        args,
+        kg: KnowledgeGraph,
+        agent: GraphWalkAgent,
+        secondary_kg=None,
+        tertiary_kg=None,
+    ):
         super(LFramework, self).__init__()
         self.args = args
         self.model_dir = args.model_dir
@@ -46,8 +53,6 @@ class LFramework(nn.Module):
         self.adam_beta1 = args.adam_beta1
         self.adam_beta2 = args.adam_beta2
         self.optim = None
-
-        self.run_analysis = args.run_analysis
 
         self.kg = kg
         self.agent = agent
@@ -91,36 +96,16 @@ class LFramework(nn.Module):
             random.shuffle(train_data)
             batch_losses = []
             entropies = []
-            if self.run_analysis:
-                rewards = None
-                fns = None
 
             for example_id in tqdm(range(0, len(train_data), self.batch_size)):
 
-                self.optim.zero_grad()
-
                 mini_batch = train_data[example_id : example_id + self.batch_size]
-                if len(mini_batch) < self.batch_size: # TODO(tilo):WhyTF?!
+                if len(mini_batch) < self.batch_size:  # TODO(tilo):WhyTF?!
                     continue
-                loss = self.loss(mini_batch)
-                loss["model_loss"].backward()
-                if self.grad_norm > 0:
-                    clip_grad_norm_(self.parameters(), self.grad_norm)
 
-                self.optim.step()
+                loss = self.train_one_batch(mini_batch)
+                batch_losses.append(loss)
 
-                batch_losses.append(loss["print_loss"])
-                if "entropy" in loss:
-                    entropies.append(loss["entropy"])
-                if self.run_analysis:
-                    if rewards is None:
-                        rewards = loss["reward"]
-                    else:
-                        rewards = torch.cat([rewards, loss["reward"]])
-                    if fns is None:
-                        fns = loss["fn"]
-                    else:
-                        fns = torch.cat([fns, loss["fn"]])
             # Check training statistics
             stdout_msg = "Epoch {}: average training loss = {}".format(
                 epoch_id, np.mean(batch_losses)
@@ -129,19 +114,9 @@ class LFramework(nn.Module):
                 stdout_msg += " entropy = {}".format(np.mean(entropies))
             print(stdout_msg)
             self.save_checkpoint(checkpoint_id=epoch_id, epoch_id=epoch_id)
-            if self.run_analysis:
-                print("* Analysis: # path types seen = {}".format(self.num_path_types))
-                num_hits = float(rewards.sum())
-                hit_ratio = num_hits / len(rewards)
-                print("* Analysis: # hits = {} ({})".format(num_hits, hit_ratio))
-                num_fns = float(fns.sum())
-                fn_ratio = num_fns / len(fns)
-                print("* Analysis: false negative ratio = {}".format(fn_ratio))
 
             # Check dev set performance
-            if self.run_analysis or (
-                epoch_id > 0 and epoch_id % self.num_peek_epochs == 0
-            ):
+            if epoch_id > 0 and epoch_id % self.num_peek_epochs == 0:
                 self.eval()
                 self.batch_size = self.dev_batch_size
                 dev_scores = self.forward(dev_data, verbose=False)
@@ -151,9 +126,7 @@ class LFramework(nn.Module):
                 )
                 metrics = mrr
                 print("Dev set performance: (include test set labels)")
-                hits_and_ranks(
-                    dev_data, dev_scores, self.kg.all_objects, verbose=True
-                )
+                hits_and_ranks(dev_data, dev_scores, self.kg.all_objects, verbose=True)
                 # Action dropout anneaking
                 if self.model.startswith("point"):
                     eta = self.action_dropout_anneal_interval
@@ -184,31 +157,15 @@ class LFramework(nn.Module):
                     ):
                         break
                 dev_metrics_history.append(metrics)
-                if self.run_analysis:
-                    num_path_types_file = os.path.join(
-                        self.model_dir, "num_path_types.dat"
-                    )
-                    dev_metrics_file = os.path.join(self.model_dir, "dev_metrics.dat")
-                    hit_ratio_file = os.path.join(self.model_dir, "hit_ratio.dat")
-                    fn_ratio_file = os.path.join(self.model_dir, "fn_ratio.dat")
-                    if epoch_id == 0:
-                        with open(num_path_types_file, "w") as o_f:
-                            o_f.write("{}\n".format(self.num_path_types))
-                        with open(dev_metrics_file, "w") as o_f:
-                            o_f.write("{}\n".format(metrics))
-                        with open(hit_ratio_file, "w") as o_f:
-                            o_f.write("{}\n".format(hit_ratio))
-                        with open(fn_ratio_file, "w") as o_f:
-                            o_f.write("{}\n".format(fn_ratio))
-                    else:
-                        with open(num_path_types_file, "a") as o_f:
-                            o_f.write("{}\n".format(self.num_path_types))
-                        with open(dev_metrics_file, "a") as o_f:
-                            o_f.write("{}\n".format(metrics))
-                        with open(hit_ratio_file, "a") as o_f:
-                            o_f.write("{}\n".format(hit_ratio))
-                        with open(fn_ratio_file, "a") as o_f:
-                            o_f.write("{}\n".format(fn_ratio))
+
+    def train_one_batch(self, mini_batch):
+        self.optim.zero_grad()
+        loss = self.calc_loss(mini_batch)
+        loss.backward()
+        if self.grad_norm > 0:
+            clip_grad_norm_(self.parameters(), self.grad_norm)
+        self.optim.step()
+        return loss.data.float()
 
     def forward(self, examples, verbose=False):
         pred_scores = []
@@ -343,7 +300,7 @@ class LFramework(nn.Module):
             pred_scores = mdl.forward(e1, r, kg)
         return pred_scores
 
-    def loss(self, mini_batch):
+    def calc_loss(self, mini_batch):
         kg, mdl = self.kg, self.agent
         # compute object training loss
         e1, e2, r = self.convert_tuples_to_tensors(
@@ -351,8 +308,4 @@ class LFramework(nn.Module):
         )
         e2_label = ((1 - self.label_smoothing_epsilon) * e2) + (1.0 / e2.size(1))
         pred_scores = mdl.forward(e1, r, kg)
-        loss = self.loss_fun(pred_scores, e2_label)
-        loss_dict = {}
-        loss_dict["model_loss"] = loss
-        loss_dict["print_loss"] = float(loss)
-        return loss_dict
+        return self.loss_fun(pred_scores, e2_label)
