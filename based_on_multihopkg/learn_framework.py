@@ -26,6 +26,25 @@ from kgr.ranking_metrics import hits_and_ranks
 from pytorch_util import build_BatchingDataLoader
 
 
+def convert_tuples_to_tensors(batch_data, num_labels=-1):
+    def convert_to_binary(batch):
+        z = zeros_var_cuda([len(batch), num_labels])
+        for i in range(len(batch)):
+            z[i][batch[i]] = 1
+        return z
+
+    batch_e1, batch_e2, batch_r = [list(l) for l in zip(*batch_data)]
+    batch_e1 = var_cuda(torch.LongTensor(batch_e1), requires_grad=False)
+    batch_r = var_cuda(torch.LongTensor(batch_r), requires_grad=False)
+
+    if type(batch_e2[0]) is list:
+        batch_e2 = convert_to_binary(batch_e2)
+    else:
+        batch_e2 = var_cuda(torch.LongTensor(batch_e2), requires_grad=False)
+
+    return batch_e1, batch_e2, batch_r
+
+
 class LFramework(nn.Module):
     def __init__(
         self,
@@ -114,50 +133,20 @@ class LFramework(nn.Module):
         pred_scores = []
         for example_id in tqdm(range(0, len(examples), batch_size)):
             mini_batch = examples[example_id : example_id + batch_size]
-            pred_scores.append(self.predict(mini_batch))
+            e1, e2, r = convert_tuples_to_tensors(mini_batch)
+            pred_scores_batch = self.agent.forward(e1, r, self.kg)
+            pred_scores.append(pred_scores_batch)
         scores = torch.cat(pred_scores)
         return scores
 
-    def convert_tuples_to_tensors(self, batch_data, num_labels=-1, num_tiles=1):
-        """
-        Convert batched tuples to the tensors accepted by the NN.
-        num_tiles == num_rollouts == beam-size
-        """
-
-        def convert_to_binary_multi_subject(e1):
-            e1_label = zeros_var_cuda([len(e1), num_labels])
-            for i in range(len(e1)):
-                e1_label[i][e1[i]] = 1
-            return e1_label
-
-        def convert_to_binary_multi_object(e2):
-            e2_label = zeros_var_cuda([len(e2), num_labels])
-            for i in range(len(e2)):
-                e2_label[i][e2[i]] = 1
-            return e2_label
-
-        batch_e1, batch_e2, batch_r = [], [], []
-        for i in range(len(batch_data)):
-            e1, e2, r = batch_data[i]
-            batch_e1.append(e1)
-            batch_e2.append(e2)
-            batch_r.append(r)
-        batch_e1 = var_cuda(torch.LongTensor(batch_e1), requires_grad=False)
-        batch_r = var_cuda(torch.LongTensor(batch_r), requires_grad=False)
-        if type(batch_e2[0]) is list:
-            batch_e2 = convert_to_binary_multi_object(batch_e2)
-        elif type(batch_e1[0]) is list:
-            batch_e1 = convert_to_binary_multi_subject(batch_e1)
-        else:
-            batch_e2 = var_cuda(torch.LongTensor(batch_e2), requires_grad=False)
-        # Rollout multiple times for each example
-        if num_tiles > 1:
-            batch_e1 = ops.tile_along_beam(
-                batch_e1, num_tiles
-            )  # is repeating the vector "num-tiles" times
-            batch_r = ops.tile_along_beam(batch_r, num_tiles)
-            batch_e2 = ops.tile_along_beam(batch_e2, num_tiles)
-        return batch_e1, batch_e2, batch_r
+    def calc_loss(self, mini_batch):
+        # compute object training loss
+        e1, e2, r = convert_tuples_to_tensors(
+            mini_batch, num_labels=self.kg.num_entities
+        )
+        e2_label = ((1 - self.label_smoothing_epsilon) * e2) + (1.0 / e2.size(1))
+        pred_scores = self.agent.forward(e1, r, self.kg)
+        return self.loss_fun(pred_scores, e2_label)
 
     def save_checkpoint(self, checkpoint_id, epoch_id=None, is_best=False):
         """
@@ -204,34 +193,6 @@ class LFramework(nn.Module):
         m_o_f.close()
         print("KG embeddings exported to {}".format(vector_path))
         print("KG meta data exported to {}".format(meta_data_path))
-
-    # def forward_fact(self, examples):
-    #     kg, mdl = self.kg, self.agent
-    #     pred_scores = []
-    #     for example_id in tqdm(range(0, len(examples), self.batch_size)):
-    #         mini_batch = examples[example_id : example_id + self.batch_size]
-    #         mini_batch_size = len(mini_batch)
-    #         if len(mini_batch) < self.batch_size:
-    #             self.make_full_batch(mini_batch, self.batch_size)
-    #         e1, e2, r = self.convert_tuples_to_tensors(mini_batch)
-    #         pred_score = mdl.forward_fact(e1, r, e2, kg)
-    #         pred_scores.append(pred_score[:mini_batch_size])
-    #     return torch.cat(pred_scores)
-
-    def predict(self, mini_batch):
-        e1, e2, r = self.convert_tuples_to_tensors(mini_batch)
-        pred_scores = self.agent.forward(e1, r, self.kg)
-        return pred_scores
-
-    def calc_loss(self, mini_batch):
-        kg, mdl = self.kg, self.agent
-        # compute object training loss
-        e1, e2, r = self.convert_tuples_to_tensors(
-            mini_batch, num_labels=kg.num_entities
-        )
-        e2_label = ((1 - self.label_smoothing_epsilon) * e2) + (1.0 / e2.size(1))
-        pred_scores = mdl.forward(e1, r, kg)
-        return self.loss_fun(pred_scores, e2_label)
 
 
 # if __name__ == '__main__':

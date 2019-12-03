@@ -49,37 +49,3 @@ class ConvE(nn.Module):
 
         S = F.sigmoid(X)
         return S
-
-    def forward_fact(self, e1, r, e2, kg):
-        """
-        Compute network scores of the given facts.
-        :param e1: [batch_size]
-        :param r:  [batch_size]
-        :param e2: [batch_size]
-        :param kg:
-        """
-        # print(e1.size(), r.size(), e2.size())
-        # print(e1.is_contiguous(), r.is_contiguous(), e2.is_contiguous())
-        # print(e1.min(), r.min(), e2.min())
-        # print(e1.max(), r.max(), e2.max())
-        E1 = kg.get_entity_embeddings(e1).view(-1, 1, self.emb_2D_d1, self.emb_2D_d2)
-        R = kg.get_relation_embeddings(r).view(-1, 1, self.emb_2D_d1, self.emb_2D_d2)
-        E2 = kg.get_entity_embeddings(e2)
-
-        stacked_inputs = torch.cat([E1, R], 2)
-        stacked_inputs = self.bn0(stacked_inputs)
-
-        X = self.conv1(stacked_inputs)
-        # X = self.bn1(X)
-        X = F.relu(X)
-        X = self.FeatureDropout(X)
-        X = X.view(-1, self.feat_dim)
-        X = self.fc(X)
-        X = self.HiddenDropout(X)
-        X = self.bn2(X)
-        X = F.relu(X)
-        X = torch.matmul(X.unsqueeze(1), E2.unsqueeze(2)).squeeze(2)
-        X += self.b[e2].unsqueeze(1)
-
-        S = F.sigmoid(X)
-        return S
