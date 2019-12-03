@@ -3,6 +3,7 @@ import random
 
 import torch
 import numpy as np
+from tqdm import tqdm
 
 from pytorch_util import build_BatchingDataLoader
 
@@ -12,7 +13,7 @@ class TripleDataset:
         self.ent2id = {}
         self.rel2id = {}
         self.batch_index = 0
-        self.data= self.read(triple_file_name)
+        self.data = self.read(triple_file_name)
 
     def read(self, file_path):
         with open(file_path, "r") as f:
@@ -57,9 +58,12 @@ class TripleDataset:
         if self.batch_index + batch_size < len(self.data):
             batch = self.data[self.batch_index : self.batch_index + batch_size]
             self.batch_index += batch_size
-        else:
+        elif self.batch_index < len(self.data):
             batch = self.data[self.batch_index :]
+            self.batch_index = len(self.data)
+        else:
             self.batch_index = 0
+            raise StopIteration
         return np.append(batch, np.ones((len(batch), 1)), axis=1).astype(
             "int"
         )  # appending the +1 label
@@ -92,13 +96,15 @@ class TripleDataset:
         return int(math.ceil(float(len(self.data["train"])) / batch_size))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
 
-    triple_file = '../MultiHopKG/data/umls/dev.triples'
+    triple_file = "../MultiHopKG/data/umls/dev.triples"
     triples = TripleDataset(triple_file)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     dl = build_BatchingDataLoader(
-        get_batch_fun=lambda _ : triples.next_batch(32, 10, device))
+        get_batch_fun=lambda _: triples.next_batch(32, 10, device)
+    )
 
-    for batch in dl:
-        print(batch)
+    for epoch in range(3):
+        for batch in tqdm(dl):
+            pass
