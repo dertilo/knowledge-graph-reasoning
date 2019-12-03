@@ -1,4 +1,5 @@
 import sys
+
 sys.path.append("../")
 from kgr.conv_e import ConvE
 from learn_framework import LFramework
@@ -77,7 +78,7 @@ def initialize_model_directory(args):
 
 def construct_model(args: Args, gargs: GeneralArgs):
     kg = KnowledgeGraph(args, gargs.data_dir)
-    fn = ConvE(args, kg.num_entities)
+    fn = ConvE(args, kg.num_entities, len(kg.maps.relation2id))
     lf = LFramework(args, kg, fn)
     return lf
 

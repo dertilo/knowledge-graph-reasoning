@@ -2,12 +2,17 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from knowledge_graph import KnowledgeGraph
+
+
 class ConvE(nn.Module):
-    def __init__(self, args, num_entities):
+    def __init__(self, args, num_entities, num_relations):
         super(ConvE, self).__init__()
-        self.entity_dim = args.entity_dim
+        entity_dim = args.entity_dim
+        emb_dropout_rate = args.emb_dropout_rate
+
         self.relation_dim = args.relation_dim
-        assert args.emb_2D_d1 * args.emb_2D_d2 == args.entity_dim
+        assert args.emb_2D_d1 * args.emb_2D_d2 == entity_dim
         assert args.emb_2D_d1 * args.emb_2D_d2 == args.relation_dim
         self.emb_2D_d1 = args.emb_2D_d1
         self.emb_2D_d2 = args.emb_2D_d2
@@ -20,17 +25,37 @@ class ConvE(nn.Module):
         self.conv1 = nn.Conv2d(1, self.num_out_channels, (self.w_d, self.w_d), 1, 0)
         self.bn0 = nn.BatchNorm2d(1)
         self.bn1 = nn.BatchNorm2d(self.num_out_channels)
-        self.bn2 = nn.BatchNorm1d(self.entity_dim)
+        self.bn2 = nn.BatchNorm1d(entity_dim)
         self.register_parameter("b", nn.Parameter(torch.zeros(num_entities)))
         h_out = 2 * self.emb_2D_d1 - self.w_d + 1
         w_out = self.emb_2D_d2 - self.w_d + 1
         self.feat_dim = self.num_out_channels * h_out * w_out
-        self.fc = nn.Linear(self.feat_dim, self.entity_dim)
+        self.fc = nn.Linear(self.feat_dim, entity_dim)
 
-    def forward(self, e1, r, kg):
-        E1 = kg.get_entity_embeddings(e1).view(-1, 1, self.emb_2D_d1, self.emb_2D_d2)
-        R = kg.get_relation_embeddings(r).view(-1, 1, self.emb_2D_d1, self.emb_2D_d2)
-        E2 = kg.get_all_entity_embeddings()
+        self.entity_embeddings = nn.Embedding(num_entities, entity_dim)
+        self.EDropout = nn.Dropout(emb_dropout_rate)
+        self.relation_embeddings = nn.Embedding(num_relations, self.relation_dim)
+        self.RDropout = nn.Dropout(emb_dropout_rate)
+
+        self.initialize_modules()
+
+    def get_entity_embeddings(self, e):
+        return self.EDropout(self.entity_embeddings(e))
+
+    def get_relation_embeddings(self, r):
+        return self.RDropout(self.relation_embeddings(r))
+
+    def get_all_entity_embeddings(self):
+        return self.EDropout(self.entity_embeddings.weight)
+
+    def initialize_modules(self):
+        nn.init.xavier_normal_(self.entity_embeddings.weight)
+        nn.init.xavier_normal_(self.relation_embeddings.weight)
+
+    def forward(self, e1, r, kg: KnowledgeGraph):
+        E1 = self.get_entity_embeddings(e1).view(-1, 1, self.emb_2D_d1, self.emb_2D_d2)
+        R = self.get_relation_embeddings(r).view(-1, 1, self.emb_2D_d1, self.emb_2D_d2)
+        E2 = self.get_all_entity_embeddings()
 
         stacked_inputs = torch.cat([E1, R], 2)
         stacked_inputs = self.bn0(stacked_inputs)

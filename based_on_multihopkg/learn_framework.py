@@ -38,6 +38,7 @@ def convert_tuples_to_tensors(batch_data, num_labels=-1):
     batch_r = var_cuda(torch.LongTensor(batch_r), requires_grad=False)
 
     if type(batch_e2[0]) is list:
+        assert num_labels != -1
         batch_e2 = convert_to_binary(batch_e2)
     else:
         batch_e2 = var_cuda(torch.LongTensor(batch_e2), requires_grad=False)
