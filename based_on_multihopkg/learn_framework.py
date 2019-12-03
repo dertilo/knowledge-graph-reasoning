@@ -6,7 +6,6 @@
  
  Base learning framework.
 """
-import abc
 import os
 import random
 import shutil

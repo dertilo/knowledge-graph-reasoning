@@ -11,7 +11,7 @@ import collections
 import os
 import pickle
 from dataclasses import dataclass
-from typing import NamedTuple, Dict, List, Set
+from typing import NamedTuple, Dict, List
 
 import torch
 import torch.nn as nn

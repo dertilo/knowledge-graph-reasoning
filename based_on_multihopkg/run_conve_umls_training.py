@@ -1,13 +1,12 @@
 import sys
+sys.path.append("../")
 
 from learn_framework import LFramework
-
-sys.path.append(".")
 from dataclasses import dataclass
 
 import os
 import torch
-import data_utils as data_utils
+import data_utils
 from knowledge_graph import KnowledgeGraph
 from fact_network import ConvE
 from ops import to_cuda
@@ -17,9 +16,9 @@ torch.manual_seed(1)
 
 @dataclass
 class GeneralArgs:
-    data_dir = "../MultiHopKG/data/umls"
-    model_root_dir = "../MultiHopKG/model"
-    model_dir = "../MultiHopKG/model"
+    data_dir = "../../MultiHopKG/data/umls"
+    model_root_dir = "../../MultiHopKG/model"
+    model_dir = "../../MultiHopKG/model"
     model = "conve"
 
 
