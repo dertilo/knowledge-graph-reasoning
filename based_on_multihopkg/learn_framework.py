@@ -18,11 +18,12 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.nn.utils import clip_grad_norm_
 
+from kgr.conv_e import ConvE
 from knowledge_graph import KnowledgeGraph
-from graph_walk_agent import GraphWalkAgent
 from ops import var_cuda, zeros_var_cuda
 import ops as ops
 from kgr.ranking_metrics import hits_and_ranks
+from pytorch_util import build_BatchingDataLoader
 
 
 class LFramework(nn.Module):
@@ -30,7 +31,7 @@ class LFramework(nn.Module):
         self,
         args,
         kg: KnowledgeGraph,
-        agent: GraphWalkAgent,
+        agent: ConvE,
         secondary_kg=None,
         tertiary_kg=None,
     ):
@@ -49,14 +50,11 @@ class LFramework(nn.Module):
         self.num_peek_epochs = args.num_peek_epochs
         self.learning_rate = args.learning_rate
         self.grad_norm = args.grad_norm
-        self.adam_beta1 = args.adam_beta1
-        self.adam_beta2 = args.adam_beta2
         self.kg = kg
         self.agent = agent
 
         self.optim = optim.Adam(
-            filter(lambda p: p.requires_grad, self.parameters()),
-            lr=self.learning_rate,
+            filter(lambda p: p.requires_grad, self.parameters()), lr=self.learning_rate,
         )
 
         print("{} module created".format(self.model))
@@ -79,10 +77,12 @@ class LFramework(nn.Module):
             batch_losses = []
             entropies = []
 
-            for example_id in tqdm(range(0, len(train_data), self.batch_size)):
+            batches_g = (
+                train_data[batch_id : batch_id + self.batch_size]
+                for batch_id in tqdm(range(0, len(train_data), self.batch_size))
+            )
 
-                mini_batch = train_data[example_id : example_id + self.batch_size]
-
+            for mini_batch in batches_g:
                 loss = self.train_one_batch(mini_batch)
                 batch_losses.append(loss)
 
@@ -97,8 +97,7 @@ class LFramework(nn.Module):
 
             if epoch_id > 0 and epoch_id % self.num_peek_epochs == 0:
                 self.eval()
-                self.batch_size = self.dev_batch_size
-                dev_scores = self.forward(dev_data, verbose=False)
+                dev_scores = self.calc_scores(dev_data, self.dev_batch_size)
                 print("Dev set performance: (include test set labels)")
                 hits_and_ranks(dev_data, dev_scores, self.kg.all_objects, verbose=True)
 
@@ -111,15 +110,11 @@ class LFramework(nn.Module):
         self.optim.step()
         return float(loss.data.cpu().numpy())
 
-    def forward(self, examples, verbose=False):
+    def calc_scores(self, examples, batch_size):
         pred_scores = []
-        for example_id in tqdm(range(0, len(examples), self.batch_size)):
-            mini_batch = examples[example_id : example_id + self.batch_size]
-            mini_batch_size = len(mini_batch)
-            if len(mini_batch) < self.batch_size:
-                self.make_full_batch(mini_batch, self.batch_size)
-            pred_score = self.predict(mini_batch, verbose=verbose)
-            pred_scores.append(pred_score[:mini_batch_size])
+        for example_id in tqdm(range(0, len(examples), batch_size)):
+            mini_batch = examples[example_id : example_id + batch_size]
+            pred_scores.append(self.predict(mini_batch))
         scores = torch.cat(pred_scores)
         return scores
 
@@ -163,16 +158,6 @@ class LFramework(nn.Module):
             batch_r = ops.tile_along_beam(batch_r, num_tiles)
             batch_e2 = ops.tile_along_beam(batch_e2, num_tiles)
         return batch_e1, batch_e2, batch_r
-
-    def make_full_batch(self, mini_batch, batch_size, multi_answers=False):
-        dummy_e = self.kg.dummy_e
-        dummy_r = self.kg.dummy_r
-        if multi_answers:
-            dummy_example = (dummy_e, [dummy_e], dummy_r)
-        else:
-            dummy_example = (dummy_e, dummy_e, dummy_r)
-        for _ in range(batch_size - len(mini_batch)):
-            mini_batch.append(dummy_example)
 
     def save_checkpoint(self, checkpoint_id, epoch_id=None, is_best=False):
         """
@@ -220,28 +205,22 @@ class LFramework(nn.Module):
         print("KG embeddings exported to {}".format(vector_path))
         print("KG meta data exported to {}".format(meta_data_path))
 
-    def forward_fact(self, examples):
-        kg, mdl = self.kg, self.agent
-        pred_scores = []
-        for example_id in tqdm(range(0, len(examples), self.batch_size)):
-            mini_batch = examples[example_id : example_id + self.batch_size]
-            mini_batch_size = len(mini_batch)
-            if len(mini_batch) < self.batch_size:
-                self.make_full_batch(mini_batch, self.batch_size)
-            e1, e2, r = self.convert_tuples_to_tensors(mini_batch)
-            pred_score = mdl.forward_fact(e1, r, e2, kg)
-            pred_scores.append(pred_score[:mini_batch_size])
-        return torch.cat(pred_scores)
+    # def forward_fact(self, examples):
+    #     kg, mdl = self.kg, self.agent
+    #     pred_scores = []
+    #     for example_id in tqdm(range(0, len(examples), self.batch_size)):
+    #         mini_batch = examples[example_id : example_id + self.batch_size]
+    #         mini_batch_size = len(mini_batch)
+    #         if len(mini_batch) < self.batch_size:
+    #             self.make_full_batch(mini_batch, self.batch_size)
+    #         e1, e2, r = self.convert_tuples_to_tensors(mini_batch)
+    #         pred_score = mdl.forward_fact(e1, r, e2, kg)
+    #         pred_scores.append(pred_score[:mini_batch_size])
+    #     return torch.cat(pred_scores)
 
-    def predict(self, mini_batch, verbose=False):
-        kg, mdl = self.kg, self.agent
+    def predict(self, mini_batch):
         e1, e2, r = self.convert_tuples_to_tensors(mini_batch)
-        if self.model == "hypere":
-            pred_scores = mdl.forward(e1, r, kg, [self.secondary_kg])
-        elif self.model == "triplee":
-            pred_scores = mdl.forward(e1, r, kg, [self.secondary_kg, self.tertiary_kg])
-        else:
-            pred_scores = mdl.forward(e1, r, kg)
+        pred_scores = self.agent.forward(e1, r, self.kg)
         return pred_scores
 
     def calc_loss(self, mini_batch):
@@ -253,3 +232,13 @@ class LFramework(nn.Module):
         e2_label = ((1 - self.label_smoothing_epsilon) * e2) + (1.0 / e2.size(1))
         pred_scores = mdl.forward(e1, r, kg)
         return self.loss_fun(pred_scores, e2_label)
+
+
+# if __name__ == '__main__':
+#     dl = build_BatchingDataLoader(
+#         get_batch_fun=lambda _: triples.next_batch(32, 10, device)
+#     )
+#
+#     for epoch in range(3):
+#         for batch in tqdm(dl):
+#             pass

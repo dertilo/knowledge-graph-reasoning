@@ -1,6 +1,6 @@
 import sys
 sys.path.append("../")
-
+from kgr.conv_e import ConvE
 from learn_framework import LFramework
 from dataclasses import dataclass
 
@@ -8,7 +8,6 @@ import os
 import torch
 import data_utils
 from knowledge_graph import KnowledgeGraph
-from fact_network import ConvE
 from ops import to_cuda
 
 torch.manual_seed(1)
