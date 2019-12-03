@@ -27,7 +27,7 @@ from ranking_metrics import hits_and_ranks
 
 
 class LFramework(nn.Module):
-    def __init__(self, args, kg: KnowledgeGraph, agent: GraphWalkAgent):
+    def __init__(self, args, kg:KnowledgeGraph, agent:GraphWalkAgent, secondary_kg=None, tertiary_kg=None):
         super(LFramework, self).__init__()
         self.args = args
         self.model_dir = args.model_dir
@@ -52,6 +52,13 @@ class LFramework(nn.Module):
         self.kg = kg
         self.agent = agent
         print("{} module created".format(self.model))
+
+        self.num_negative_samples = args.num_negative_samples
+        self.label_smoothing_epsilon = args.label_smoothing_epsilon
+        self.loss_fun = nn.BCELoss()
+        self.theta = args.theta
+        self.secondary_kg = secondary_kg
+        self.tertiary_kg = tertiary_kg
 
     def print_all_model_parameters(self):
         print("\nModel Parameters")
@@ -78,25 +85,8 @@ class LFramework(nn.Module):
 
         for epoch_id in range(self.start_epoch, self.num_epochs):
             print("Epoch {}".format(epoch_id))
-            if self.rl_variation_tag.startswith("rs"):
-                # Reward shaping module sanity check:
-                #   Make sure the reward shaping module output value is in the correct range
-                train_scores = self.test_fn(train_data)
-                dev_scores = self.test_fn(dev_data)
-                print(
-                    "Train set average fact score: {}".format(
-                        float(train_scores.mean())
-                    )
-                )
-                print("Dev set average fact score: {}".format(float(dev_scores.mean())))
 
-            # Update model parameters
             self.train()
-            if self.rl_variation_tag.startswith("rs"):
-                self.fn.eval()
-                self.fn_kg.eval()
-                if self.model.endswith("hypere"):
-                    self.fn_secondary_kg.eval()
             self.batch_size = self.train_batch_size
             random.shuffle(train_data)
             batch_losses = []
@@ -104,12 +94,13 @@ class LFramework(nn.Module):
             if self.run_analysis:
                 rewards = None
                 fns = None
+
             for example_id in tqdm(range(0, len(train_data), self.batch_size)):
 
                 self.optim.zero_grad()
 
                 mini_batch = train_data[example_id : example_id + self.batch_size]
-                if len(mini_batch) < self.batch_size:
+                if len(mini_batch) < self.batch_size: # TODO(tilo):WhyTF?!
                     continue
                 loss = self.loss(mini_batch)
                 loss["model_loss"].backward()
@@ -218,10 +209,6 @@ class LFramework(nn.Module):
                             o_f.write("{}\n".format(hit_ratio))
                         with open(fn_ratio_file, "a") as o_f:
                             o_f.write("{}\n".format(fn_ratio))
-
-    @abc.abstractmethod
-    def loss(self, mini_batch):
-        raise NotImplementedError
 
     def forward(self, examples, verbose=False):
         pred_scores = []
@@ -332,10 +319,40 @@ class LFramework(nn.Module):
         print("KG embeddings exported to {}".format(vector_path))
         print("KG meta data exported to {}".format(meta_data_path))
 
-    @property
-    def rl_variation_tag(self):
-        parts = self.model.split(".")
-        if len(parts) > 1:
-            return parts[1]
+    def forward_fact(self, examples):
+        kg, mdl = self.kg, self.agent
+        pred_scores = []
+        for example_id in tqdm(range(0, len(examples), self.batch_size)):
+            mini_batch = examples[example_id : example_id + self.batch_size]
+            mini_batch_size = len(mini_batch)
+            if len(mini_batch) < self.batch_size:
+                self.make_full_batch(mini_batch, self.batch_size)
+            e1, e2, r = self.convert_tuples_to_tensors(mini_batch)
+            pred_score = mdl.forward_fact(e1, r, e2, kg)
+            pred_scores.append(pred_score[:mini_batch_size])
+        return torch.cat(pred_scores)
+
+    def predict(self, mini_batch, verbose=False):
+        kg, mdl = self.kg, self.agent
+        e1, e2, r = self.convert_tuples_to_tensors(mini_batch)
+        if self.model == "hypere":
+            pred_scores = mdl.forward(e1, r, kg, [self.secondary_kg])
+        elif self.model == "triplee":
+            pred_scores = mdl.forward(e1, r, kg, [self.secondary_kg, self.tertiary_kg])
         else:
-            return ""
+            pred_scores = mdl.forward(e1, r, kg)
+        return pred_scores
+
+    def loss(self, mini_batch):
+        kg, mdl = self.kg, self.agent
+        # compute object training loss
+        e1, e2, r = self.convert_tuples_to_tensors(
+            mini_batch, num_labels=kg.num_entities
+        )
+        e2_label = ((1 - self.label_smoothing_epsilon) * e2) + (1.0 / e2.size(1))
+        pred_scores = mdl.forward(e1, r, kg)
+        loss = self.loss_fun(pred_scores, e2_label)
+        loss_dict = {}
+        loss_dict["model_loss"] = loss
+        loss_dict["print_loss"] = float(loss)
+        return loss_dict

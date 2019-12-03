@@ -10,7 +10,6 @@ import torch
 import data_utils as data_utils
 from knowledge_graph import KnowledgeGraph
 from fact_network import ConvE
-from emb import EmbeddingBasedMethod
 from ops import to_cuda
 
 torch.manual_seed(1)
@@ -36,9 +35,9 @@ class Args:
     add_reversed_training_edges = True
     train_entire_graph = False
     emb_dropout_rate = 0.3
-    num_epochs = 4
+    num_epochs = 101
     num_wait_epochs = 500
-    num_peek_epochs = 2
+    num_peek_epochs = 10
     start_epoch = 0
     batch_size = 512
     train_batch_size = 32
@@ -82,7 +81,7 @@ def initialize_model_directory(args):
 def construct_model(args: Args, gargs: GeneralArgs):
     kg = KnowledgeGraph(args, gargs.data_dir)
     fn = ConvE(args, kg.num_entities)
-    lf = EmbeddingBasedMethod(args, kg, fn)
+    lf = LFramework(args, kg, fn)
     return lf
 
 
@@ -123,20 +122,23 @@ if __name__ == "__main__":
 
 """
 
-Epoch 18: average training loss = 0.09945450909435749
-=> saving checkpoint to './model/umls-conve-RV-xavier-200-200-0.003-32-3-0.3-0.3-0.2-0.1/checkpoint-18.tar'
-100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 11/11 [00:00<00:00, 1381.90it/s]
+Epoch 100
+100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 49/49 [00:00<00:00, 158.39it/s]
+Epoch 100: average training loss = 0.08766505277405183
+=> saving checkpoint to '../MultiHopKG/model/umls-conve/checkpoint-100.tar'
+100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 11/11 [00:00<00:00, 1302.80it/s]
 Dev set performance: (correct evaluation)
-Hits@1 = 0.514
-Hits@3 = 0.848
-Hits@5 = 0.933
-Hits@10 = 0.975
-MRR = 0.693
+Hits@1 = 0.535
+Hits@3 = 0.879
+Hits@5 = 0.960
+Hits@10 = 0.992
+MRR = 0.711
 Dev set performance: (include test set labels)
-Hits@1 = 0.836
-Hits@3 = 0.956
-Hits@5 = 0.963
-Hits@10 = 0.982
-MRR = 0.900
+Hits@1 = 0.922
+Hits@3 = 0.983
+Hits@5 = 0.986
+Hits@10 = 0.994
+MRR = 0.953
+
 
 """
