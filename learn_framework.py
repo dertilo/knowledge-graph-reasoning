@@ -52,8 +52,10 @@ class LFramework(nn.Module):
         self.grad_norm = args.grad_norm
         self.adam_beta1 = args.adam_beta1
         self.adam_beta2 = args.adam_beta2
-        self.optim = None
-
+        self.optim = optim.Adam(
+            filter(lambda p: p.requires_grad, self.parameters()),
+            lr=self.learning_rate,
+        )
         self.kg = kg
         self.agent = agent
         print("{} module created".format(self.model))
@@ -77,16 +79,6 @@ class LFramework(nn.Module):
 
     def run_train(self, train_data, dev_data):
         self.print_all_model_parameters()
-
-        if self.optim is None:
-            self.optim = optim.Adam(
-                filter(lambda p: p.requires_grad, self.parameters()),
-                lr=self.learning_rate,
-            )
-
-        # Track dev metrics changes
-        best_dev_metrics = 0
-        dev_metrics_history = []
 
         for epoch_id in range(self.start_epoch, self.num_epochs):
             print("Epoch {}".format(epoch_id))
@@ -115,48 +107,12 @@ class LFramework(nn.Module):
             print(stdout_msg)
             self.save_checkpoint(checkpoint_id=epoch_id, epoch_id=epoch_id)
 
-            # Check dev set performance
             if epoch_id > 0 and epoch_id % self.num_peek_epochs == 0:
                 self.eval()
                 self.batch_size = self.dev_batch_size
                 dev_scores = self.forward(dev_data, verbose=False)
-                print("Dev set performance: (correct evaluation)")
-                _, _, _, _, mrr = hits_and_ranks(
-                    dev_data, dev_scores, self.kg.dev_objects, verbose=True
-                )
-                metrics = mrr
                 print("Dev set performance: (include test set labels)")
                 hits_and_ranks(dev_data, dev_scores, self.kg.all_objects, verbose=True)
-                # Action dropout anneaking
-                if self.model.startswith("point"):
-                    eta = self.action_dropout_anneal_interval
-                    if len(dev_metrics_history) > eta and metrics < min(
-                        dev_metrics_history[-eta:]
-                    ):
-                        old_action_dropout_rate = self.action_dropout_rate
-                        self.action_dropout_rate *= self.action_dropout_anneal_factor
-                        print(
-                            "Decreasing action dropout rate: {} -> {}".format(
-                                old_action_dropout_rate, self.action_dropout_rate
-                            )
-                        )
-                # Save checkpoint
-                if metrics > best_dev_metrics:
-                    self.save_checkpoint(
-                        checkpoint_id=epoch_id, epoch_id=epoch_id, is_best=True
-                    )
-                    best_dev_metrics = metrics
-                    with open(
-                        os.path.join(self.model_dir, "best_dev_iteration.dat"), "w"
-                    ) as o_f:
-                        o_f.write("{}".format(epoch_id))
-                else:
-                    # Early stopping
-                    if epoch_id >= self.num_wait_epochs and metrics < np.mean(
-                        dev_metrics_history[-self.num_wait_epochs :]
-                    ):
-                        break
-                dev_metrics_history.append(metrics)
 
     def train_one_batch(self, mini_batch):
         self.optim.zero_grad()
