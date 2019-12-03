@@ -19,11 +19,11 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.nn.utils import clip_grad_norm_
 
-import eval
 from knowledge_graph import KnowledgeGraph
 from graph_walk_agent import GraphWalkAgent
 from ops import var_cuda, zeros_var_cuda
 import ops as ops
+from ranking_metrics import hits_and_ranks
 
 
 class LFramework(nn.Module):
@@ -155,12 +155,12 @@ class LFramework(nn.Module):
                 self.batch_size = self.dev_batch_size
                 dev_scores = self.forward(dev_data, verbose=False)
                 print("Dev set performance: (correct evaluation)")
-                _, _, _, _, mrr = eval.hits_and_ranks(
+                _, _, _, _, mrr = hits_and_ranks(
                     dev_data, dev_scores, self.kg.dev_objects, verbose=True
                 )
                 metrics = mrr
                 print("Dev set performance: (include test set labels)")
-                eval.hits_and_ranks(
+                hits_and_ranks(
                     dev_data, dev_scores, self.kg.all_objects, verbose=True
                 )
                 # Action dropout anneaking
