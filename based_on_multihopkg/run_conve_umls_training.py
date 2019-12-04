@@ -106,12 +106,10 @@ if __name__ == "__main__":
             add_reverse_relations=args.add_reversed_training_edges,
         )
 
-        seen_entities = set()
         dev_data = data_utils.load_triples(
             dev_path,
             entity_index_path,
             relation_index_path,
-            seen_entities=seen_entities,
         )
         if args.checkpoint_path is not None:
             lf.load_checkpoint(args.checkpoint_path)

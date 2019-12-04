@@ -137,36 +137,26 @@ def load_triples(
     group_examples_by_query=False,
     add_reverse_relations=False,
     seen_entities=None,
-    verbose=False,
 ):
-    """
-    Convert triples stored on disc into indices.
-    """
     entity2id, _ = load_index(entity_index_path)
     relation2id, _ = load_index(relation_index_path)
 
     def triple2ids(e1, e2, r):
         return entity2id[e1], entity2id[e2], relation2id[r]
 
-    triples = []
-    if group_examples_by_query:
-        triple_dict = {}
+    def is_known(e1, e2, r):
+        is_known = lambda : e1 in seen_entities and e2 in seen_entities
+        return seen_entities is None or is_known()
+
     with open(data_path) as f:
-        num_skipped = 0
-        for line in f:
-            e1, e2, r = line.strip().split()
-            if seen_entities and (not e1 in seen_entities or not e2 in seen_entities):
-                num_skipped += 1
-                if verbose:
-                    print(
-                        "Skip triple ({}) with unseen entity: {}".format(
-                            num_skipped, line.strip()
-                        )
-                    )
-                continue
-            # if r in ['concept:agentbelongstoorganization', 'concept:teamplaysinleague']:
-            #     continue
-            if group_examples_by_query:
+        triples_g = (line.strip().split() for line in f)
+        triples_g_filtered = filter(lambda tr:is_known(*tr), triples_g)
+
+        if group_examples_by_query:
+            triple_dict = {}
+
+            def add_to_triple_dict(triple, triple_dict):
+                e1, e2, r = triple
                 e1_id, e2_id, r_id = triple2ids(e1, e2, r)
                 if e1_id not in triple_dict:
                     triple_dict[e1_id] = {}
@@ -181,14 +171,23 @@ def load_triples(
                     if r_inv_id not in triple_dict[e2_id]:
                         triple_dict[e2_id][r_inv_id] = set()
                     triple_dict[e2_id][r_inv_id].add(e1_id)
-            else:
-                triples.append(triple2ids(e1, e2, r))
-                if add_reverse_relations:
-                    triples.append(triple2ids(e2, e1, r + "_inv"))
-    if group_examples_by_query:
-        for e1_id in triple_dict:
-            for r_id in triple_dict[e1_id]:
-                triples.append((e1_id, list(triple_dict[e1_id][r_id]), r_id))
+
+            for triple in triples_g_filtered:
+                add_to_triple_dict(triple, triple_dict)
+
+            triples = [
+                (e1_id, list(triple_dict[e1_id][r_id]), r_id)
+                for e1_id in triple_dict
+                for r_id in triple_dict[e1_id]
+            ]
+
+        else:
+            triples = [(triple2ids(*tr)) for tr in triples_g_filtered]
+            if add_reverse_relations:
+                triples += [
+                    (triple2ids(e1, e2, r + "_inv")) for e1, e2, r in triples_g_filtered
+                ]
+
     print("{} triples loaded from {}".format(len(triples), data_path))
     return triples
 
