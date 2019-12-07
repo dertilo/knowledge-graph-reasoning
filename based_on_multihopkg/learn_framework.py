@@ -88,32 +88,20 @@ class LFramework(nn.Module):
 
     def run_train(self, train_data, dev_data):
 
-        for epoch_id in range(self.start_epoch, self.num_epochs):
-            print("Epoch {}".format(epoch_id))
-
+        for epoch_id in tqdm(range(self.start_epoch, self.num_epochs)):
             self.train()
             self.batch_size = self.train_batch_size
             random.shuffle(train_data)
             batch_losses = []
-            entropies = []
 
             batches_g = (
                 train_data[batch_id : batch_id + self.batch_size]
-                for batch_id in tqdm(range(0, len(train_data), self.batch_size))
+                for batch_id in range(0, len(train_data), self.batch_size)
             )
 
             for mini_batch in batches_g:
                 loss = self.train_one_batch(mini_batch)
                 batch_losses.append(loss)
-
-            # Check training statistics
-            stdout_msg = "Epoch {}: average training loss = {}".format(
-                epoch_id, np.mean(batch_losses)
-            )
-            if entropies:
-                stdout_msg += " entropy = {}".format(np.mean(entropies))
-            print(stdout_msg)
-            self.save_checkpoint(checkpoint_id=epoch_id, epoch_id=epoch_id)
 
             if epoch_id > 0 and epoch_id % self.num_peek_epochs == 0:
                 self.eval()
@@ -132,7 +120,7 @@ class LFramework(nn.Module):
 
     def calc_scores(self, examples, batch_size):
         pred_scores = []
-        for example_id in tqdm(range(0, len(examples), batch_size)):
+        for example_id in range(0, len(examples), batch_size):
             mini_batch = examples[example_id : example_id + batch_size]
             e1, e2, r = convert_tuples_to_tensors(mini_batch)
             pred_scores_batch = self.agent.forward(e1, r, self.kg)
