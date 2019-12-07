@@ -98,19 +98,12 @@ if __name__ == "__main__":
         dev_path = os.path.join(data_dir, "dev.triples")
         entity_index_path = os.path.join(data_dir, "entity2id.txt")
         relation_index_path = os.path.join(data_dir, "relation2id.txt")
-        train_data = data_utils.load_triples(
-            train_path,
+        train_data,dev_data = data_utils.load_triples(
+            train_path,dev_path,
             entity_index_path,
-            relation_index_path,
-            group_examples_by_query=args.group_examples_by_query,
-            add_reverse_relations=args.add_reversed_training_edges,
+            relation_index_path
         )
 
-        dev_data = data_utils.load_triples(
-            dev_path,
-            entity_index_path,
-            relation_index_path,
-        )
         if args.checkpoint_path is not None:
             lf.load_checkpoint(args.checkpoint_path)
         lf.run_train(train_data, dev_data)
