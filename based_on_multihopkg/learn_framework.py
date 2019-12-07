@@ -11,19 +11,15 @@ import random
 import shutil
 from tqdm import tqdm
 
-import numpy as np
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.nn.utils import clip_grad_norm_
 
-from kgr.conv_e import ConvE
+from conv_e import ConvEScoringAgainstAll
 from knowledge_graph import KnowledgeGraph
 from ops import var_cuda, zeros_var_cuda
-import ops as ops
 from kgr.ranking_metrics import hits_and_ranks
-from pytorch_util import build_BatchingDataLoader
 
 
 def convert_tuples_to_tensors(batch_data, num_labels=-1):
@@ -51,7 +47,7 @@ class LFramework(nn.Module):
         self,
         args,
         kg: KnowledgeGraph,
-        agent: ConvE,
+        agent: ConvEScoringAgainstAll,
         secondary_kg=None,
         tertiary_kg=None,
     ):

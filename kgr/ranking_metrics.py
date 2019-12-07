@@ -2,7 +2,10 @@ import numpy as np
 import torch
 
 BEAM_SIZE = 100  # TODO(tilo): taken from "parse_args.py" line 474
-from based_on_multihopkg.data_utils import NO_OP_ENTITY_ID, DUMMY_ENTITY_ID #TODO(tilo)!!
+from based_on_multihopkg.data_utils import (
+    NO_OP_ENTITY_ID,
+    DUMMY_ENTITY_ID,
+)  # TODO(tilo)!!
 
 
 def hits_and_ranks(examples, scores, all_answers, verbose=False):
