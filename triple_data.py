@@ -1,109 +1,126 @@
 import math
 import random
+from dataclasses import dataclass
+from typing import Dict, List, NamedTuple
 
 import torch
 import numpy as np
 from tqdm import tqdm
+from util import data_io, util_methods
 
 from pytorch_util import build_BatchingDataLoader
 
 
+class Triple(NamedTuple):
+    subject: int
+    predicate: int
+    object: int
+
+
+@dataclass
 class TripleDataset:
-    def __init__(self, triple_file_name):
-        self.ent2id = {}
-        self.rel2id = {}
-        self.batch_index = 0
-        self.data = self.read(triple_file_name)
+    ent2id: Dict[str, int]
+    rel2id: Dict[str, int]
+    dataset2triples: Dict[str, List[Triple]]
 
-    def read(self, file_path):
-        with open(file_path, "r") as f:
-            lines = f.readlines()
 
-        triples = np.zeros((len(lines), 3))
-        for i, line in enumerate(lines):
+def get_id(x2id: Dict, x):
+    if x not in x2id.keys():
+        x2id[x] = len(x2id)
+    return x2id[x]
+
+
+def build_triple_dataset(triple_files: Dict[str, str]):
+    ent2id, rel2id = {}, {}
+
+    def build_triples(file):
+        def process_line(line):
             s, o, p = line.strip().split("\t")
-            triples[i] = np.array(self.triple2ids((s, p, o)))
-        return triples
+            s_id, o_id, p_id = get_id(ent2id, s), get_id(ent2id, o), get_id(rel2id, p)
+            return Triple(s_id, p_id, o_id)
 
-    def num_ent(self):
-        return len(self.ent2id)
+        return [process_line(line) for line in data_io.read_lines(file)]
 
-    def num_rel(self):
-        return len(self.rel2id)
+    ds2tr = {
+        dataset_name: build_triples(triple_file)
+        for dataset_name, triple_file in triple_files.items()
+    }
+    return TripleDataset(ent2id, rel2id, ds2tr)
 
-    def triple2ids(self, triple):
-        return [
-            self.get_ent_id(triple[0]),
-            self.get_rel_id(triple[1]),
-            self.get_ent_id(triple[2]),
-        ]
 
-    def get_ent_id(self, ent):
-        if not ent in self.ent2id:
-            self.ent2id[ent] = len(self.ent2id)
-        return self.ent2id[ent]
+def rand_ent_except(num_ent, ent):
+    rand_ent = random.randint(0, num_ent - 1)
+    while rand_ent == ent:
+        rand_ent = random.randint(0, num_ent - 1)
+    return rand_ent
 
-    def get_rel_id(self, rel):
-        if not rel in self.rel2id:
-            self.rel2id[rel] = len(self.rel2id)
-        return self.rel2id[rel]
 
-    def rand_ent_except(self, ent):
-        rand_ent = random.randint(0, self.num_ent() - 1)
-        while rand_ent == ent:
-            rand_ent = random.randint(0, self.num_ent() - 1)
-        return rand_ent
+def build_batch(raw_batch: List[Triple], num_ents,neg_ratio = 1):
+    #TODO(tilo): neg_ratio ??
 
-    def next_pos_batch(self, batch_size):
-        if self.batch_index + batch_size < len(self.data):
-            batch = self.data[self.batch_index : self.batch_index + batch_size]
-            self.batch_index += batch_size
-        elif self.batch_index < len(self.data):
-            batch = self.data[self.batch_index :]
-            self.batch_index = len(self.data)
+    pos_batch = np.array([[tr.subject, tr.predicate, tr.object] for tr in raw_batch])
+
+    neg_batch = np.repeat(np.copy(pos_batch), neg_ratio, axis=0)
+    for i in range(len(neg_batch)):
+        if random.random() < 0.5:
+            neg_batch[i][0] = rand_ent_except(
+                num_ents, neg_batch[i][0]
+            )  # flipping head
         else:
-            self.batch_index = 0
+            neg_batch[i][2] = rand_ent_except(
+                num_ents, neg_batch[i][2]
+            )  # flipping tail
+
+    input_batch = np.append(pos_batch, neg_batch, axis=0)
+    neg_targets = np.zeros((neg_batch.shape[0], 1)) # zeros or -1 ??
+    pos_targets = np.ones((pos_batch.shape[0], 1))
+    target_batch = np.concatenate(
+        [pos_targets, neg_targets]
+    )
+
+    input_tensor = torch.tensor(input_batch).float().to(device)
+    target_tensor = torch.tensor(target_batch).float().to(device)
+    return input_tensor, target_tensor
+
+
+def build_batch_iter(triples: List[Triple], num_ents, batch_size=32):
+    random.shuffle(triples)
+    g = (
+        build_batch(raw_batch, num_ents)
+        for raw_batch in util_methods.iterable_to_batches(triples, batch_size)
+    )
+    return iter(g)
+
+
+def build_resetting_next_fun(iter_supplier):
+    ita = [iter_supplier()]
+
+    def get_next(_):
+        try:
+            batch = next(ita[0])
+            return batch
+        except StopIteration:
+            ita[0] = iter_supplier()
             raise StopIteration
-        return np.append(batch, np.ones((len(batch), 1)), axis=1).astype(
-            "int"
-        )  # appending the +1 label
 
-    def generate_neg(self, pos_batch, neg_ratio):
-        neg_batch = np.repeat(np.copy(pos_batch), neg_ratio, axis=0)
-        for i in range(len(neg_batch)):
-            if random.random() < 0.5:
-                neg_batch[i][0] = self.rand_ent_except(neg_batch[i][0])  # flipping head
-            else:
-                neg_batch[i][2] = self.rand_ent_except(neg_batch[i][2])  # flipping tail
-        neg_batch[:, -1] = -1
-        return neg_batch
-
-    def next_batch(self, batch_size, neg_ratio, device):
-        pos_batch = self.next_pos_batch(batch_size)
-        neg_batch = self.generate_neg(pos_batch, neg_ratio)
-        batch = np.append(pos_batch, neg_batch, axis=0)
-        np.random.shuffle(batch)
-        heads = torch.tensor(batch[:, 0]).long().to(device)
-        rels = torch.tensor(batch[:, 1]).long().to(device)
-        tails = torch.tensor(batch[:, 2]).long().to(device)
-        labels = torch.tensor(batch[:, 3]).float().to(device)
-        return heads, rels, tails, labels
-
-    def was_last_batch(self):
-        return self.batch_index == 0
-
-    def num_batch(self, batch_size):
-        return int(math.ceil(float(len(self.data["train"])) / batch_size))
+    return get_next
 
 
 if __name__ == "__main__":
 
-    triple_file = "../MultiHopKG/data/umls/dev.triples"
-    triples = TripleDataset(triple_file)
+    build_path = lambda ds: "../MultiHopKG/data/umls/%s.triples" % ds
+    triple_files = {ds: build_path(ds) for ds in ["train", "dev", "test"]}
+    data = build_triple_dataset(triple_files)
+
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    dl = build_BatchingDataLoader(
-        get_batch_fun=lambda _: triples.next_batch(32, 10, device)
+
+    get_batch_fun = build_resetting_next_fun(
+        lambda: build_batch_iter(
+            data.dataset2triples["dev"], len(data.ent2id.keys()), 32
+        )
     )
+
+    dl = build_BatchingDataLoader(get_batch_fun=get_batch_fun)
 
     for epoch in range(3):
         for batch in tqdm(dl):
