@@ -55,8 +55,8 @@ def rand_ent_except(num_ent, ent):
     return rand_ent
 
 
-def build_batch(raw_batch: List[Triple], num_ents,neg_ratio = 1):
-    #TODO(tilo): neg_ratio ??
+def build_batch(raw_batch: List[Triple], num_ents, neg_ratio=1):
+    # TODO(tilo): neg_ratio ??
 
     pos_batch = np.array([[tr.subject, tr.predicate, tr.object] for tr in raw_batch])
 
@@ -72,14 +72,12 @@ def build_batch(raw_batch: List[Triple], num_ents,neg_ratio = 1):
             )  # flipping tail
 
     input_batch = np.append(pos_batch, neg_batch, axis=0)
-    neg_targets = np.zeros((neg_batch.shape[0], 1)) # zeros or -1 ??
+    neg_targets = np.zeros((neg_batch.shape[0], 1))  # zeros or -1 ??
     pos_targets = np.ones((pos_batch.shape[0], 1))
-    target_batch = np.concatenate(
-        [pos_targets, neg_targets]
-    )
+    target_batch = np.concatenate([pos_targets, neg_targets])
 
-    input_tensor = torch.tensor(input_batch).float().to(device)
-    target_tensor = torch.tensor(target_batch).float().to(device)
+    input_tensor = torch.tensor(input_batch).long()
+    target_tensor = torch.tensor(target_batch).float()
     return input_tensor, target_tensor
 
 
