@@ -1,23 +1,35 @@
+from dataclasses import dataclass
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+@dataclass
+class Config:
+    entity_dim:int=200
+    relation_dim:int=200
+    emb_dropout_rate:float=0.3
+    hidden_dropout_rate:float=0.3
+    feat_dropout_rate:float=0.2
+    emb_2D_d1:int=10
+    emb_2D_d2:int=20
+    num_out_channels:int=32
+    kernel_size:int=3
 
 class ConvE(nn.Module):
-    def __init__(self, args, num_entities, num_relations):
+    def __init__(self, config:Config, num_entities, num_relations):
         super(ConvE, self).__init__()
-        entity_dim = args.entity_dim
-        emb_dropout_rate = args.emb_dropout_rate
+        entity_dim = config.entity_dim
+        emb_dropout_rate = config.emb_dropout_rate
 
-        self.relation_dim = args.relation_dim
-        assert args.emb_2D_d1 * args.emb_2D_d2 == entity_dim
-        assert args.emb_2D_d1 * args.emb_2D_d2 == args.relation_dim
-        self.emb_2D_d1 = args.emb_2D_d1
-        self.emb_2D_d2 = args.emb_2D_d2
-        self.num_out_channels = args.num_out_channels
-        self.w_d = args.kernel_size
-        self.HiddenDropout = nn.Dropout(args.hidden_dropout_rate)
-        self.FeatureDropout = nn.Dropout(args.feat_dropout_rate)
+        assert config.emb_2D_d1 * config.emb_2D_d2 == entity_dim
+        assert config.emb_2D_d1 * config.emb_2D_d2 == config.relation_dim
+        self.emb_2D_d1 = config.emb_2D_d1
+        self.emb_2D_d2 = config.emb_2D_d2
+        self.num_out_channels = config.num_out_channels
+        self.w_d = config.kernel_size
+        self.HiddenDropout = nn.Dropout(config.hidden_dropout_rate)
+        self.FeatureDropout = nn.Dropout(config.feat_dropout_rate)
 
         # stride = 1, padding = 0, dilation = 1, groups = 1
         self.conv1 = nn.Conv2d(1, self.num_out_channels, (self.w_d, self.w_d), 1, 0)
@@ -32,7 +44,7 @@ class ConvE(nn.Module):
 
         self.entity_embeddings = nn.Embedding(num_entities, entity_dim)
         self.EDropout = nn.Dropout(emb_dropout_rate)
-        self.relation_embeddings = nn.Embedding(num_relations, self.relation_dim)
+        self.relation_embeddings = nn.Embedding(num_relations, config.relation_dim)
         self.RDropout = nn.Dropout(emb_dropout_rate)
 
         self.initialize_modules()
