@@ -28,7 +28,7 @@ def get_id(x2id: Dict, x):
 def build_triple_dataset(triple_files: Dict[str, str]):
     ent2id, rel2id = {}, {}
 
-    def build_triples(file) -> Trees:
+    def build_triples(file,dataset_name) -> Trees:
         trees = {}
 
         def add_triple(subj, predi, obje, triple_dict: Trees):
@@ -41,14 +41,15 @@ def build_triple_dataset(triple_files: Dict[str, str]):
         for line in data_io.read_lines(file):
             s, o, p = line.strip().split("\t")
             s_id, o_id, p_id = get_id(ent2id, s), get_id(ent2id, o), get_id(rel2id, p)
-            p_inv_id = get_id(rel2id, p + "_inv")
             add_triple(s_id, p_id, o_id, trees)
-            add_triple(o_id, p_inv_id, s_id, trees)
+            if 'train' in dataset_name:
+                p_inv_id = get_id(rel2id, p + "_inv")
+                add_triple(o_id, p_inv_id, s_id, trees)
 
         return trees
 
     ds2tr = {
-        dataset_name: build_triples(triple_file)
+        dataset_name: build_triples(triple_file,dataset_name)
         for dataset_name, triple_file in triple_files.items()
     }
     return TripleDataset(ent2id, rel2id, ds2tr)

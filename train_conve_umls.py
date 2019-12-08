@@ -3,14 +3,16 @@ from typing import List
 import torch
 import torch.nn as nn
 from torch import optim
+from tqdm import tqdm
 
 from kgr.conv_e import Config, ConvE
+from kgr.ranking_metrics import hits_and_ranks
 from pytorch_util import build_BatchingDataLoader
 from triple_data import Branch, build_triple_dataset, build_resetting_next_fun, \
     build_batch_iter
 
 
-def convert_to_tensors(batch: List[Branch], num_entities):
+def convert_branches_to_tensors(batch: List[Branch], num_entities):
     def convert_to_binary(batch):
         z = torch.zeros((len(batch), num_entities))
         for i, objs_idx in enumerate(batch):
@@ -24,6 +26,13 @@ def convert_to_tensors(batch: List[Branch], num_entities):
 
     return batch_e1, batch_r,batch_e2
 
+def convert_tuples_to_tensors(batch:List[Branch]):
+    batch_e1, batch_r, _ = [list(l) for l in zip(*batch)]
+    batch_e1 = torch.LongTensor(batch_e1)
+    batch_r = torch.LongTensor(batch_r)
+    return batch_e1, batch_r
+
+
 if __name__ == "__main__":
 
     build_path = lambda ds: "../MultiHopKG/data/umls/%s.triples" % ds
@@ -33,10 +42,12 @@ if __name__ == "__main__":
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     num_entities = len(data.ent2id.keys())
-    get_batch_fun = build_resetting_next_fun(
-        lambda: build_batch_iter(data.dataset2trees["dev"], 32)
-    )
-    dl = build_BatchingDataLoader(get_batch_fun=get_batch_fun)
+    train_loader = build_BatchingDataLoader(get_batch_fun=build_resetting_next_fun(
+        lambda: build_batch_iter(data.dataset2trees["train"], 32)
+    ))
+    eval_loader = build_BatchingDataLoader(get_batch_fun=build_resetting_next_fun(
+        lambda: build_batch_iter(data.dataset2trees["dev"], 128)
+    ))
 
     num_relations = len(data.rel2id.keys())
     config = Config()
@@ -52,7 +63,7 @@ if __name__ == "__main__":
     def train_one_batch(model: nn.Module, optimizer, raw_batch):
         optimizer.zero_grad()
 
-        e1, r, e2 = convert_to_tensors(raw_batch, num_entities)
+        e1, r, e2 = convert_branches_to_tensors(raw_batch, num_entities)
         pred_scores = model.forward(e1, r)
         e2_label = ((1 - label_smoothing_epsilon) * e2) + (1.0 / e2.size(1))
         loss = loss_fun(pred_scores, e2_label)
@@ -62,6 +73,20 @@ if __name__ == "__main__":
         return float(loss.data.cpu().numpy())
 
 
-    for epoch in range(1):
-        for raw_batch in dl:
-            print(train_one_batch(model,optimizer,raw_batch))
+    for epoch in range(10):
+        for raw_batch in tqdm(train_loader):
+            train_one_batch(model, optimizer, raw_batch)
+
+        model.eval()
+        pred_scores = []
+        dev_data = []
+        for mini_batch in eval_loader:
+            dev_data.extend(mini_batch)
+            e1, r = convert_tuples_to_tensors(mini_batch)
+            scores = model.forward(e1, r)
+            pred_scores.append(scores)
+        dev_scores = torch.cat(pred_scores)
+
+        print("Dev set performance: (include test set labels)")
+        hits_and_ranks(dev_data, dev_scores, data.dataset2trees, verbose=True)
+
