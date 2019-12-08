@@ -1,5 +1,6 @@
 from typing import List
 
+import numpy
 import torch
 import torch.nn as nn
 from torch import optim
@@ -8,8 +9,12 @@ from tqdm import tqdm
 from kgr.conv_e import Config, ConvE
 from kgr.ranking_metrics import hits_and_ranks
 from pytorch_util import build_BatchingDataLoader
-from triple_data import Branch, build_triple_dataset, build_resetting_next_fun, \
-    build_batch_iter
+from triple_data import (
+    Branch,
+    build_triple_dataset,
+    build_resetting_next_fun,
+    build_batch_iter,
+)
 
 
 def convert_branches_to_tensors(batch: List[Branch], num_entities):
@@ -24,9 +29,10 @@ def convert_branches_to_tensors(batch: List[Branch], num_entities):
     batch_r = torch.LongTensor(batch_r)
     batch_e2 = convert_to_binary(batch_e2)
 
-    return batch_e1, batch_r,batch_e2
+    return batch_e1, batch_r, batch_e2
 
-def convert_tuples_to_tensors(batch:List[Branch]):
+
+def convert_tuples_to_tensors(batch: List[Branch]):
     batch_e1, batch_r, _ = [list(l) for l in zip(*batch)]
     batch_e1 = torch.LongTensor(batch_e1)
     batch_r = torch.LongTensor(batch_r)
@@ -42,16 +48,20 @@ if __name__ == "__main__":
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     num_entities = len(data.ent2id.keys())
-    train_loader = build_BatchingDataLoader(get_batch_fun=build_resetting_next_fun(
-        lambda: build_batch_iter(data.dataset2trees["train"], 32)
-    ))
-    eval_loader = build_BatchingDataLoader(get_batch_fun=build_resetting_next_fun(
-        lambda: build_batch_iter(data.dataset2trees["dev"], 128)
-    ))
+    train_loader = build_BatchingDataLoader(
+        get_batch_fun=build_resetting_next_fun(
+            lambda: build_batch_iter(data.dataset2trees["train"], 32)
+        )
+    )
+    eval_loader = build_BatchingDataLoader(
+        get_batch_fun=build_resetting_next_fun(
+            lambda: build_batch_iter(data.dataset2trees["dev"], 128)
+        )
+    )
 
     num_relations = len(data.rel2id.keys())
     config = Config()
-    model = ConvE(config, num_entities, num_relations)
+    model: ConvE = ConvE(config, num_entities, num_relations)
 
     label_smoothing_epsilon = 0.1
     loss_fun = nn.BCELoss()
@@ -59,34 +69,39 @@ if __name__ == "__main__":
         filter(lambda p: p.requires_grad, model.parameters()), lr=0.003,
     )
 
-
     def train_one_batch(model: nn.Module, optimizer, raw_batch):
         optimizer.zero_grad()
 
         e1, r, e2 = convert_branches_to_tensors(raw_batch, num_entities)
-        pred_scores = model.forward(e1, r)
+        pred_scores = model.forward(e1.to(device), r.to(device))
         e2_label = ((1 - label_smoothing_epsilon) * e2) + (1.0 / e2.size(1))
-        loss = loss_fun(pred_scores, e2_label)
+        loss = loss_fun(pred_scores, e2_label.to(device))
 
         loss.backward()
         optimizer.step()
         return float(loss.data.cpu().numpy())
 
 
-    for epoch in range(10):
-        for raw_batch in tqdm(train_loader):
-            train_one_batch(model, optimizer, raw_batch)
-
+    def run_evaluation(eval_loader, model):
         model.eval()
         pred_scores = []
         dev_data = []
         for mini_batch in eval_loader:
             dev_data.extend(mini_batch)
             e1, r = convert_tuples_to_tensors(mini_batch)
-            scores = model.forward(e1, r)
+            scores = model.forward(e1.to(device), r.to(device)).cpu()
             pred_scores.append(scores)
         dev_scores = torch.cat(pred_scores)
+        return hits_and_ranks(dev_data, dev_scores, data.dataset2trees)
 
-        print("Dev set performance: (include test set labels)")
-        hits_and_ranks(dev_data, dev_scores, data.dataset2trees, verbose=True)
 
+    pbar = tqdm(range(100))
+    model.to(device)
+    for epoch in pbar:
+        model.train()
+        epoch_loss = numpy.mean(
+            [train_one_batch(model, optimizer, raw_batch) for raw_batch in train_loader]
+        )
+        if epoch%10==0:
+            mrr = run_evaluation(eval_loader, model)["mrr"]
+        pbar.set_description("Epoch: {}; mean-loss: {:.4f}; MRR: {:.3f}".format(epoch + 1,epoch_loss, mrr))

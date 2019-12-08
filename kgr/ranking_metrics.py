@@ -12,7 +12,6 @@ def hits_and_ranks(
     branches: List[Branch],
     branch_scores: torch.Tensor,
     all_trees: Dict[str, Trees],
-    verbose=False,
 ):
     assert len(branches) == branch_scores.shape[0]
     branch_idx_e1_r_e2 = [
@@ -32,10 +31,6 @@ def hits_and_ranks(
     def hits_at_k(k):
         return np.sum(ranks < k) / num_triples
 
-    hits_at_1 = hits_at_k(1)
-    hits_at_3 = hits_at_k(3)
-    hits_at_5 = hits_at_k(5)
-    hits_at_10 = hits_at_k(10)
     mrr = np.sum(1 / (1 + ranks)) / num_triples
 
     # mrr with scikit-learn
@@ -44,14 +39,9 @@ def hits_and_ranks(
     # mrr_sklearn = label_ranking_average_precision_score(y_true_dense, scores.data.numpy())
     # assert mrr_sklearn ==mrr
 
-    if verbose:
-        print("Hits@1 = {:.3f}".format(hits_at_1))
-        print("Hits@3 = {:.3f}".format(hits_at_3))
-        print("Hits@5 = {:.3f}".format(hits_at_5))
-        print("Hits@10 = {:.3f}".format(hits_at_10))
-        print("MRR = {:.3f}".format(mrr))
-
-    return hits_at_1, hits_at_3, hits_at_5, hits_at_10, mrr
+    metrics = {'hits@%d'%k: hits_at_k(k) for k in [1,3,5,10]}
+    metrics.update({'mrr':mrr})
+    return metrics
 
 
 def mask_false_negatives(scores, alltrees: Dict[str, Trees], branch_idx_e1_r_e2):

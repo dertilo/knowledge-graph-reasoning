@@ -17,8 +17,9 @@ class Config:
     kernel_size:int=3
 
 class ConvE(nn.Module):
-    def __init__(self, config:Config, num_entities, num_relations):
-        super(ConvE, self).__init__()
+
+    def __init__(self, config:Config, num_entities, num_relations)-> None:
+        super().__init__()
         entity_dim = config.entity_dim
         emb_dropout_rate = config.emb_dropout_rate
 
