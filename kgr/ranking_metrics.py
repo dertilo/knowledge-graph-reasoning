@@ -6,10 +6,6 @@ import torch
 from triple_data import Trees, Branch
 
 BEAM_SIZE = 100  # TODO(tilo): taken from "parse_args.py" line 474
-from based_on_multihopkg.data_utils import (
-    NO_OP_ENTITY_ID,
-    DUMMY_ENTITY_ID,
-)  # TODO(tilo)!!
 
 
 def hits_and_ranks(
@@ -19,7 +15,9 @@ def hits_and_ranks(
     verbose=False,
 ):
     assert len(branches) == branch_scores.shape[0]
-    branch_idx_e1_r_e2 = [(i, e1, r, e2) for i, (e1, r, e2s) in enumerate(branches) for e2 in e2s]
+    branch_idx_e1_r_e2 = [
+        (i, e1, r, e2) for i, (e1, r, e2s) in enumerate(branches) for e2 in e2s
+    ]
     scores = mask_false_negatives(branch_scores, all_trees, branch_idx_e1_r_e2)
     num_triples = scores.shape[0]
     assert num_triples == len(branch_idx_e1_r_e2)
@@ -28,7 +26,7 @@ def hits_and_ranks(
     top_k_targets = top_k_targets.cpu().numpy()
 
     ranks = np.argwhere(
-        np.equal(top_k_targets, np.array([[e2] for _,_, _, e2 in branch_idx_e1_r_e2]))
+        np.equal(top_k_targets, np.array([[e2] for _, _, _, e2 in branch_idx_e1_r_e2]))
     )[:, 1]
 
     def hits_at_k(k):
@@ -57,14 +55,13 @@ def hits_and_ranks(
 
 
 def mask_false_negatives(scores, alltrees: Dict[str, Trees], branch_idx_e1_r_e2):
-    dummy_mask = [DUMMY_ENTITY_ID, NO_OP_ENTITY_ID]
     rows = []
     for i, e1, r, e2 in branch_idx_e1_r_e2:
         one_row = scores[i, :].clone().unsqueeze(0)
-        cols_to_be_masked = dummy_mask + [
-            obj for trees in alltrees.values() for obj in trees.get(e1,{}).get(r,[])
+        cols_to_be_masked = [
+            obj for trees in alltrees.values() for obj in trees.get(e1, {}).get(r, [])
         ]
         one_row[0, cols_to_be_masked] = 0
         one_row[0, e2] = float(scores[i, e2])
         rows.append(one_row)
-    return torch.cat(rows,dim=0)
+    return torch.cat(rows, dim=0)
