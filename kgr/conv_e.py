@@ -1,189 +1,65 @@
-# -*- coding: utf-8 -*-
-
-"""Implementation of ConvE."""
-
-from typing import Dict
-
 import torch
-import torch.autograd
-from torch import nn
-from torch.nn import Parameter, functional as F
-from torch.nn.init import xavier_normal
-
-from pykeen.constants import (
-    CONV_E_FEATURE_MAP_DROPOUT,
-    CONV_E_HEIGHT,
-    CONV_E_INPUT_CHANNELS,
-    CONV_E_INPUT_DROPOUT,
-    CONV_E_KERNEL_HEIGHT,
-    CONV_E_KERNEL_WIDTH,
-    CONV_E_NAME,
-    CONV_E_OUTPUT_CHANNELS,
-    CONV_E_OUTPUT_DROPOUT,
-    CONV_E_WIDTH,
-    EMBEDDING_DIM,
-    NUM_ENTITIES,
-    NUM_RELATIONS,
-    MARGIN_LOSS,
-    LEARNING_RATE,
-    PREFERRED_DEVICE,
-    GPU,
-)
-
-__all__ = ["ConvE"]
+import torch.nn as nn
+import torch.nn.functional as F
 
 
 class ConvE(nn.Module):
-    """An implementation of ConvE [dettmers2017]_.
+    def __init__(self, args, num_entities, num_relations):
+        super(ConvE, self).__init__()
+        entity_dim = args.entity_dim
+        emb_dropout_rate = args.emb_dropout_rate
 
-    .. [dettmers2017] Dettmers, T., *et al.* (2017) `Convolutional 2d knowledge graph embeddings
-                      <https://arxiv.org/pdf/1707.01476.pdf>`_. arXiv preprint arXiv:1707.01476.
+        self.relation_dim = args.relation_dim
+        assert args.emb_2D_d1 * args.emb_2D_d2 == entity_dim
+        assert args.emb_2D_d1 * args.emb_2D_d2 == args.relation_dim
+        self.emb_2D_d1 = args.emb_2D_d1
+        self.emb_2D_d2 = args.emb_2D_d2
+        self.num_out_channels = args.num_out_channels
+        self.w_d = args.kernel_size
+        self.HiddenDropout = nn.Dropout(args.hidden_dropout_rate)
+        self.FeatureDropout = nn.Dropout(args.feat_dropout_rate)
 
-    .. seealso:: https://github.com/TimDettmers/ConvE/blob/master/model.py
-    """
+        # stride = 1, padding = 0, dilation = 1, groups = 1
+        self.conv1 = nn.Conv2d(1, self.num_out_channels, (self.w_d, self.w_d), 1, 0)
+        self.bn0 = nn.BatchNorm2d(1)
+        self.bn1 = nn.BatchNorm2d(self.num_out_channels)
+        self.bn2 = nn.BatchNorm1d(entity_dim)
+        self.register_parameter("b", nn.Parameter(torch.zeros(num_entities)))
+        h_out = 2 * self.emb_2D_d1 - self.w_d + 1
+        w_out = self.emb_2D_d2 - self.w_d + 1
+        self.feat_dim = self.num_out_channels * h_out * w_out
+        self.fc = nn.Linear(self.feat_dim, entity_dim)
 
-    model_name = CONV_E_NAME
-    hyper_params = [
-        EMBEDDING_DIM,
-        CONV_E_INPUT_CHANNELS,
-        CONV_E_OUTPUT_CHANNELS,
-        CONV_E_HEIGHT,
-        CONV_E_WIDTH,
-        CONV_E_KERNEL_HEIGHT,
-        CONV_E_KERNEL_WIDTH,
-        CONV_E_INPUT_DROPOUT,
-        CONV_E_FEATURE_MAP_DROPOUT,
-        CONV_E_OUTPUT_DROPOUT,
-        MARGIN_LOSS,
-        LEARNING_RATE,
-    ]
+        self.entity_embeddings = nn.Embedding(num_entities, entity_dim)
+        self.EDropout = nn.Dropout(emb_dropout_rate)
+        self.relation_embeddings = nn.Embedding(num_relations, self.relation_dim)
+        self.RDropout = nn.Dropout(emb_dropout_rate)
 
-    def __init__(self, config: Dict) -> None:
-        super().__init__()
-        self.try_gpu = config.get(PREFERRED_DEVICE) == GPU
+        self.initialize_modules()
 
-        # Device selection
-        self.device = torch.device(
-            "cuda:0" if torch.cuda.is_available() and self.try_gpu else "cpu"
-        )
+    def initialize_modules(self):
+        nn.init.xavier_normal_(self.entity_embeddings.weight)
+        nn.init.xavier_normal_(self.relation_embeddings.weight)
 
-        # Entity dimensions
-        self.num_entities = config[NUM_ENTITIES]
-        self.num_relations = config[NUM_RELATIONS]
+    def forward(self, e1, r):
+        E1 = self.EDropout(self.entity_embeddings(e1)).view(-1, 1, self.emb_2D_d1, self.emb_2D_d2)
+        R = self.RDropout(self.relation_embeddings(r)).view(-1, 1, self.emb_2D_d1, self.emb_2D_d2)
+        all_embeddings = self.EDropout(self.entity_embeddings.weight)
 
-        # Embeddings
-        self.embedding_dim = config[EMBEDDING_DIM]
-
-        self.entity_embeddings = nn.Embedding(self.num_entities, self.embedding_dim)
-        self.relation_embeddings = nn.Embedding(self.num_relations, self.embedding_dim)
-
-        num_in_channels = config[CONV_E_INPUT_CHANNELS]
-
-        num_out_channels = config[CONV_E_OUTPUT_CHANNELS]
-        self.img_height = config[CONV_E_HEIGHT]
-        self.img_width = config[CONV_E_WIDTH]
-        kernel_height = config[CONV_E_KERNEL_HEIGHT]
-        kernel_width = config[CONV_E_KERNEL_WIDTH]
-        input_dropout = config[CONV_E_INPUT_DROPOUT]
-        hidden_dropout = config[CONV_E_OUTPUT_DROPOUT]
-        feature_map_dropout = config[CONV_E_FEATURE_MAP_DROPOUT]
-
-        assert self.img_height * self.img_width == self.embedding_dim
-
-        self.inp_drop = torch.nn.Dropout(input_dropout)
-        self.hidden_drop = torch.nn.Dropout(hidden_dropout)
-        self.feature_map_drop = torch.nn.Dropout2d(feature_map_dropout)
-        self.loss = torch.nn.BCELoss()
-
-        self.conv1 = torch.nn.Conv2d(
-            in_channels=num_in_channels,
-            out_channels=num_out_channels,
-            kernel_size=(kernel_height, kernel_width),
-            stride=1,
-            padding=0,
-            bias=True,
-        )
-
-        # num_features – C from an expected input of size (N,C,L)
-        self.bn0 = torch.nn.BatchNorm2d(num_in_channels)
-        # num_features – C from an expected input of size (N,C,H,W)
-        self.bn1 = torch.nn.BatchNorm2d(num_out_channels)
-        self.bn2 = torch.nn.BatchNorm1d(self.embedding_dim)
-        self.register_parameter("b", Parameter(torch.zeros(self.num_entities)))
-        num_in_features = (
-            num_out_channels
-            * (2 * self.img_height - kernel_height + 1)
-            * (self.img_width - kernel_width + 1)
-        )
-        self.fc = torch.nn.Linear(num_in_features, self.embedding_dim)
-
-    def init(self):  # FIXME is this ever called?
-        xavier_normal(self.entity_embeddings.weight.data)
-        xavier_normal(self.relation_embeddings.weight.data)
-
-    def predict(self, triples):
-        batch_size = triples.shape[0]
-        triples = torch.tensor(triples, dtype=torch.long, device=self.device)
-        subj_embedded, rel_embedded, candidate_object_emebddings = self._embedd_triples(
-            triples
-        )
-
-        x = self._calc_x(batch_size, rel_embedded, subj_embedded)
-
-        x = torch.mm(x, candidate_object_emebddings.transpose(1, 0))
-        scores = F.sigmoid(x)
-
-        max_scores, predictions = torch.max(scores, dim=1)
-
-        # Class 0 represents false fact and class 1 represents true fact
-
-        return predictions
-
-
-    def forward(self, batch, labels):
-        batch_size = batch.shape[0]
-
-        heads_embs, relation_embs, tails_embs = self._embedd_triples(batch)
-        x = self._calc_x(batch_size, heads_embs, relation_embs)
-
-        pre_scores = torch.mm(x, tails_embs.transpose(1, 0))
-        scores = torch.sum(pre_scores, dim=1)
-
-        predictions = F.sigmoid(scores)
-        loss = self.loss(predictions, labels)
-        return loss
-
-    def _calc_x(self, batch_size, heads_embs, relation_embs):
-        # batch_size, num_input_channels, 2*height, width
-        stacked_inputs = torch.cat([heads_embs, relation_embs], 2)
-        # batch_size, num_input_channels, 2*height, width
+        stacked_inputs = torch.cat([E1, R], 2)
         stacked_inputs = self.bn0(stacked_inputs)
-        # batch_size, num_input_channels, 2*height, width
-        x = self.inp_drop(stacked_inputs)
-        # (N,C_out,H_out,W_out)
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = F.relu(x)
-        x = self.feature_map_drop(x)
-        # batch_size, num_output_channels * (2 * height - kernel_height + 1) * (width - kernel_width + 1)
-        x = x.view(batch_size, -1)
-        x = self.fc(x)
-        x = self.hidden_drop(x)
-        if batch_size > 1:
-            x = self.bn2(x)
-        x = F.relu(x)
-        return x
 
-    def _embedd_triples(self, batch):
-        subj = batch[:, 0:1]
-        rel = batch[:, 1:2]
-        objs = batch[:, 2:3].squeeze()
+        X = self.conv1(stacked_inputs)
+        # X = self.bn1(X)
+        X = F.relu(X)
+        X = self.FeatureDropout(X)
+        X = X.view(-1, self.feat_dim)
+        X = self.fc(X)
+        X = self.HiddenDropout(X)
+        X = self.bn2(X)
+        X = F.relu(X)
+        X = torch.mm(X, all_embeddings.transpose(1, 0))
+        X += self.b.expand_as(X)
 
-        heads_embs = self.entity_embeddings(subj).view(
-            -1, 1, self.img_height, self.img_width
-        )
-        relation_embs = self.relation_embeddings(rel).view(
-            -1, 1, self.img_height, self.img_width
-        )
-        tails_embs = self.entity_embeddings(objs)
-        return heads_embs, relation_embs, tails_embs
+        S = F.sigmoid(X)
+        return S
