@@ -105,3 +105,8 @@ if __name__ == "__main__":
         if epoch%10==0:
             mrr = run_evaluation(eval_loader, model)["mrr"]
         pbar.set_description("Epoch: {}; mean-loss: {:.4f}; MRR: {:.3f}".format(epoch + 1,epoch_loss, mrr))
+
+
+'''
+Epoch: 100; mean-loss: 0.0891; MRR: 0.947: 100%|██████████| 100/100 [02:10<00:00,  1.30s/it]
+'''

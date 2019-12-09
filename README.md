@@ -1,6 +1,10 @@
 # knowledge-graph-reasoning
+## thoughts
+* multihopkg/ConvE approach is fully sufficient; no negative sampling needed, always score against all entities, might not work for graphs with millions of entities
 ### attempt to build a pytorchic KG-embedding+reasoning system; inspired by the following ones 
 #### 1. [MultiHopKG](https://github.com/salesforce/MultiHopKG)
+* during training of ConvE scores against all entities ([see](https://github.com/salesforce/MultiHopKG/blob/23747699aefe3a9f835f9875ce446a18de96dcb1/src/emb/fact_network.py#L142)) I guess this only works for very small graphs
+
 ##### pros: 
 * nice collection of [benchmark-datasets](https://github.com/salesforce/MultiHopKG/blob/master/data-release.tgz)
 * implements multihop reasoning (powered by reinforcement learning)
@@ -30,3 +34,6 @@
 # Datasets
 
 * WN18RR is shit? -> [see](https://github.com/villmow/datasets_knowledge_embedding)
+
+[CogKR](https://github.com/THUDM/CogKR)
+[AmpliGraph](https://github.com/Accenture/AmpliGraph)
