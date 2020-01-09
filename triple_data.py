@@ -13,7 +13,7 @@ Branch = Tuple[int, int, Set[int]]
 
 
 @dataclass
-class TripleDataset:
+class TreesDataset:
     ent2id: Dict[str, int]
     rel2id: Dict[str, int]
     dataset2trees: Dict[str, Trees]
@@ -25,34 +25,34 @@ def get_id(x2id: Dict, x):
     return x2id[x]
 
 
-def build_triple_dataset(triple_files: Dict[str, str]):
+def build_trees_dataset(triple_files: Dict[str, str]):
     ent2id, rel2id = {}, {}
 
-    def build_triples(file,dataset_name) -> Trees:
+    def build_trees(file,dataset_name) -> Trees:
         trees = {}
 
-        def add_triple(subj, predi, obje, triple_dict: Trees):
-            if subj not in triple_dict:
-                triple_dict[subj] = {}
-            if predi not in triple_dict[subj]:
-                triple_dict[subj][predi] = set()
-            triple_dict[subj][predi].add(obje)
+        def add_branch(subj, predi, obje, trees: Trees):
+            if subj not in trees:
+                trees[subj] = {}
+            if predi not in trees[subj]:
+                trees[subj][predi] = set()
+            trees[subj][predi].add(obje)
 
         for line in data_io.read_lines(file):
             s, o, p = line.strip().split("\t")
             s_id, o_id, p_id = get_id(ent2id, s), get_id(ent2id, o), get_id(rel2id, p)
-            add_triple(s_id, p_id, o_id, trees)
+            add_branch(s_id, p_id, o_id, trees)
             if 'train' in dataset_name:
                 p_inv_id = get_id(rel2id, p + "_inv")
-                add_triple(o_id, p_inv_id, s_id, trees)
+                add_branch(o_id, p_inv_id, s_id, trees)
 
         return trees
 
     ds2tr = {
-        dataset_name: build_triples(triple_file,dataset_name)
+        dataset_name: build_trees(triple_file,dataset_name)
         for dataset_name, triple_file in triple_files.items()
     }
-    return TripleDataset(ent2id, rel2id, ds2tr)
+    return TreesDataset(ent2id, rel2id, ds2tr)
 
 
 
@@ -86,7 +86,7 @@ if __name__ == "__main__":
 
     build_path = lambda ds: "../MultiHopKG/data/umls/%s.triples" % ds
     triple_files = {ds: build_path(ds) for ds in ["train", "dev", "test"]}
-    data = build_triple_dataset(triple_files)
+    data = build_trees_dataset(triple_files)
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 

@@ -11,7 +11,7 @@ from kgr.ranking_metrics import hits_and_ranks
 from pytorch_util import build_BatchingDataLoader
 from triple_data import (
     Branch,
-    build_triple_dataset,
+    build_trees_dataset,
     build_resetting_next_fun,
     build_batch_iter,
 )
@@ -43,7 +43,7 @@ if __name__ == "__main__":
 
     build_path = lambda ds: "../MultiHopKG/data/umls/%s.triples" % ds
     triple_files = {ds: build_path(ds) for ds in ["train", "dev", "test"]}
-    data = build_triple_dataset(triple_files)
+    data = build_trees_dataset(triple_files)
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
