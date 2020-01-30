@@ -31,7 +31,7 @@ def build_trees_dataset(triple_files: Dict[str, str]):
     def build_trees(file,dataset_name) -> Trees:
         trees = {}
 
-        def add_branch(subj, predi, obje, trees: Trees):
+        def add_triple(subj, predi, obje, trees: Trees):
             if subj not in trees:
                 trees[subj] = {}
             if predi not in trees[subj]:
@@ -41,10 +41,10 @@ def build_trees_dataset(triple_files: Dict[str, str]):
         for line in data_io.read_lines(file):
             s, o, p = line.strip().split("\t")
             s_id, o_id, p_id = get_id(ent2id, s), get_id(ent2id, o), get_id(rel2id, p)
-            add_branch(s_id, p_id, o_id, trees)
+            add_triple(s_id, p_id, o_id, trees)
             if 'train' in dataset_name:
                 p_inv_id = get_id(rel2id, p + "_inv")
-                add_branch(o_id, p_inv_id, s_id, trees)
+                add_triple(o_id, p_inv_id, s_id, trees)
 
         return trees
 
