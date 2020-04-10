@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 from torch import optim
 from tqdm import tqdm
+from util import data_io
 
 from kgr.conv_e import Config, ConvE
 from kgr.ranking_metrics import hits_and_ranks
@@ -41,7 +42,7 @@ def convert_tuples_to_tensors(batch: List[Branch]):
 
 if __name__ == "__main__":
 
-    build_path = lambda ds: "../MultiHopKG/data/umls/%s.triples" % ds
+    build_path = lambda ds: "../MultiHopKG/datasets/umls/%s.triples" % ds
     triple_files = {ds: build_path(ds) for ds in ["train", "dev", "test"]}
     data = build_trees_dataset(triple_files)
 
@@ -104,6 +105,9 @@ if __name__ == "__main__":
         )
         if epoch%10==0:
             mrr = run_evaluation(eval_loader, model)["mrr"]
+            named_params = {n: v for n, v in model.named_parameters()}
+            data_io.write_json('ent2id.json',data.ent2id)
+            torch.save(named_params['entity_embeddings.weight'].data,"entity_embeddings.pt")
         pbar.set_description("Epoch: {}; mean-loss: {:.4f}; MRR: {:.3f}".format(epoch + 1,epoch_loss, mrr))
 
 
